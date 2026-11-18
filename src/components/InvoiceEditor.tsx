@@ -1264,6 +1264,35 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
           </label>
         </div>
 
+        <div className="mb-3">
+          <label className="block text-xs font-medium text-slate-700 mb-1">
+            Pilih Nama Perusahaan (4 PT)
+          </label>
+          <select
+            disabled={!footer.enabled}
+            value={
+              COMPANY_LOGO_PRESETS.some((p) => p.companyName === footer.companyName)
+                ? footer.companyName
+                : ''
+            }
+            onChange={(e) => {
+              if (e.target.value) {
+                onChangeFooter({ ...footer, companyName: e.target.value });
+              }
+            }}
+            className="w-full px-3 py-2 text-sm rounded-md border border-slate-300 bg-white disabled:bg-slate-100 disabled:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+          >
+            <option value="" disabled>
+              -- Pilih dari 4 PT atau isi manual di bawah --
+            </option>
+            {COMPANY_LOGO_PRESETS.map((preset) => (
+              <option key={preset.id} value={preset.companyName}>
+                {preset.companyName}
+              </option>
+            ))}
+          </select>
+        </div>
+
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>
             <label className="block text-xs font-medium text-slate-700 mb-1">
