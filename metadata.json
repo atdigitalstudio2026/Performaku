@@ -1,0 +1,6 @@
+{
+  "name": "Proforma Invoice Studio",
+  "description": "Aplikasi pembuat Proforma Invoice dengan kopsurat logo perusahaan, manajemen rekening bank yang dapat diubah, pratinjau A4 langsung, dan unduh PDF otomatis.",
+  "requestFramePermissions": [],
+  "majorCapabilities": []
+}
