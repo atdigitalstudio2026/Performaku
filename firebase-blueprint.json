@@ -1,0 +1,377 @@
+{
+  "entities": {
+    "InvoiceLog": {
+      "title": "InvoiceLog",
+      "description": "Catatan riwayat Proforma Invoice yang pernah dibuat, dicetak, atau diunduh sebagai PDF.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "description": "UID pengguna Firebase Auth pembuat dokumen."
+        },
+        "ownerEmail": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Email pengguna pembuat dokumen."
+        },
+        "ownerName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Nama tampilan pembuat dokumen."
+        },
+        "actionType": {
+          "type": "string",
+          "enum": ["manual_save", "pdf_export", "print", "restored"],
+          "description": "Jenis aktivitas saat log dibuat."
+        },
+        "status": {
+          "type": "string",
+          "enum": ["active", "archived"],
+          "description": "Status arsip log invoice."
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 100
+        },
+        "cityDate": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "invoiceNumber": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "showInvoiceNumber": {
+          "type": "boolean"
+        },
+        "buyerName": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "buyerAddress": {
+          "type": "string",
+          "maxLength": 500
+        },
+        "sellerName": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "currency": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 10
+        },
+        "numberFormat": {
+          "type": "string",
+          "enum": ["comma", "dot"]
+        },
+        "ppnMode": {
+          "type": "string",
+          "enum": ["include", "exclude_add", "non_ppn"]
+        },
+        "ppnRate": {
+          "type": "number"
+        },
+        "qtyHeader": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "priceHeader": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "taxLabel": {
+          "type": "string",
+          "maxLength": 50
+        },
+        "qtyUnit": {
+          "type": "string",
+          "maxLength": 30
+        },
+        "tableHeaderColor": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^#[0-9a-fA-F]{6}$"
+        },
+        "shippingCost": {
+          "type": "number"
+        },
+        "shippingLabel": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "depositAmount": {
+          "type": "number"
+        },
+        "depositLabel": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "additionalNote": {
+          "type": "string",
+          "maxLength": 1000
+        },
+        "highlightTransferTotal": {
+          "type": "boolean"
+        },
+        "showSignature": {
+          "type": "boolean"
+        },
+        "signatureName": {
+          "type": "string",
+          "maxLength": 100
+        },
+        "signatureTitle": {
+          "type": "string",
+          "maxLength": 120
+        },
+        "itemCount": {
+          "type": "integer"
+        },
+        "totalWeightKg": {
+          "type": "number"
+        },
+        "subtotal": {
+          "type": "number"
+        },
+        "ppnAmount": {
+          "type": "number"
+        },
+        "grandTotal": {
+          "type": "number"
+        },
+        "appliedDeposit": {
+          "type": "number"
+        },
+        "netPayable": {
+          "type": "number"
+        },
+        "bankAccount": {
+          "type": "object"
+        },
+        "companySnapshot": {
+          "type": "object"
+        },
+        "footerSnapshot": {
+          "type": "object"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "ownerEmail",
+        "ownerName",
+        "actionType",
+        "status",
+        "title",
+        "cityDate",
+        "invoiceNumber",
+        "showInvoiceNumber",
+        "buyerName",
+        "buyerAddress",
+        "sellerName",
+        "currency",
+        "numberFormat",
+        "ppnMode",
+        "ppnRate",
+        "qtyHeader",
+        "priceHeader",
+        "taxLabel",
+        "qtyUnit",
+        "tableHeaderColor",
+        "depositAmount",
+        "depositLabel",
+        "additionalNote",
+        "highlightTransferTotal",
+        "showSignature",
+        "signatureName",
+        "signatureTitle",
+        "itemCount",
+        "totalWeightKg",
+        "subtotal",
+        "ppnAmount",
+        "grandTotal",
+        "appliedDeposit",
+        "netPayable",
+        "bankAccount",
+        "companySnapshot",
+        "footerSnapshot",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "InvoiceLogItem": {
+      "title": "InvoiceLogItem",
+      "description": "Baris item barang milik sebuah dokumen log Proforma Invoice.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "logId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "orderIndex": {
+          "type": "integer"
+        },
+        "namaBarang": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "orderUnit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 30
+        },
+        "weightPerUnit": {
+          "type": "number"
+        },
+        "harga": {
+          "type": "number"
+        },
+        "priceBasis": {
+          "type": "string",
+          "enum": ["per_kg", "per_unit"]
+        },
+        "qty": {
+          "type": "number"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "logId",
+        "orderIndex",
+        "namaBarang",
+        "orderUnit",
+        "weightPerUnit",
+        "harga",
+        "priceBasis",
+        "qty",
+        "createdAt"
+      ]
+    },
+    "BankAccountRecord": {
+      "title": "BankAccountRecord",
+      "description": "Daftar rekening bank tersimpan milik pengguna di Firestore.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "bankName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "bankShortName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 40
+        },
+        "accountHolder": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 150
+        },
+        "accountNumber": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 50
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "bankName",
+        "bankShortName",
+        "accountHolder",
+        "accountNumber",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "UserPreference": {
+      "title": "UserPreference",
+      "description": "Preferensi profil perusahaan dan footer dokumen milik pengguna.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "company": {
+          "type": "object"
+        },
+        "footer": {
+          "type": "object"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "company",
+        "footer",
+        "updatedAt"
+      ]
+    }
+  },
+  "firestore": {
+    "/invoiceLogs/{logId}": {
+      "schema": {
+        "$ref": "#/entities/InvoiceLog"
+      },
+      "description": "Menyimpan riwayat dan log transaksi Proforma Invoice yang dibuat atau diekspor."
+    },
+    "/invoiceLogs/{logId}/items/{itemId}": {
+      "schema": {
+        "$ref": "#/entities/InvoiceLogItem"
+      },
+      "description": "Subkoleksi item barang untuk setiap dokumen log Proforma Invoice."
+    },
+    "/bankAccounts/{bankId}": {
+      "schema": {
+        "$ref": "#/entities/BankAccountRecord"
+      },
+      "description": "Menyimpan daftar rekening bank kustom pengguna."
+    },
+    "/userSettings/{userId}": {
+      "schema": {
+        "$ref": "#/entities/UserPreference"
+      },
+      "description": "Menyimpan profil perusahaan dan footer default pengguna di cloud."
+    }
+  }
+}

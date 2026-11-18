@@ -53,6 +53,7 @@ export interface InvoiceTotals {
   totalWeightKg: number;
   ppnRate: number;
   ppnAmount: number;
+  shippingCost: number;
   grandTotal: number;
   depositAmount: number;
   appliedDeposit: number;
@@ -75,7 +76,8 @@ export function calculateInvoiceTotals(invoice: ProformaInvoiceData): InvoiceTot
   const ppnRate = Number.isFinite(invoice.ppnRate) ? Math.max(0, invoice.ppnRate) : 11;
   const isExcludeAdd = ppnMode === 'exclude_add';
   const ppnAmount = isExcludeAdd ? Math.round((subtotal * ppnRate) / 100) : 0;
-  const grandTotal = subtotal + ppnAmount;
+  const shippingCost = Math.max(0, Math.round(Number(invoice.shippingCost) || 0));
+  const grandTotal = subtotal + ppnAmount + shippingCost;
 
   const depositAmount = Math.max(0, Math.round(Number(invoice.depositAmount) || 0));
   const appliedDeposit = Math.min(grandTotal, depositAmount);
@@ -87,6 +89,7 @@ export function calculateInvoiceTotals(invoice: ProformaInvoiceData): InvoiceTot
     totalWeightKg,
     ppnRate,
     ppnAmount,
+    shippingCost,
     grandTotal,
     depositAmount,
     appliedDeposit,

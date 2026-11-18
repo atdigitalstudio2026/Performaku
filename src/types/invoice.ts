@@ -57,6 +57,8 @@ export interface ProformaInvoiceData {
   currency: string;
   numberFormat: 'comma' | 'dot';
   tableHeaderColor?: string;
+  shippingCost?: number;
+  shippingLabel?: string;
   depositAmount?: number;
   depositLabel?: string;
   items: InvoiceItem[];
@@ -73,3 +75,30 @@ export interface SavedInvoiceDraft {
   savedAt: string;
   data: ProformaInvoiceData;
 }
+
+export type InvoiceLogAction = 'manual_save' | 'pdf_export' | 'print' | 'restored';
+export type InvoiceLogStatus = 'active' | 'archived';
+
+export interface InvoiceLogRecord {
+  id: string;
+  ownerId: string;
+  ownerEmail: string;
+  ownerName: string;
+  actionType: InvoiceLogAction;
+  status: InvoiceLogStatus;
+  createdAtMs: number;
+  updatedAtMs: number;
+  itemCount: number;
+  totalWeightKg: number;
+  subtotal: number;
+  ppnAmount: number;
+  shippingCost: number;
+  grandTotal: number;
+  appliedDeposit: number;
+  netPayable: number;
+  sellerName: string;
+  invoiceSnapshot: Omit<ProformaInvoiceData, 'items'>;
+  companySnapshot: CompanyProfile;
+  footerSnapshot: DocumentFooter;
+}
+

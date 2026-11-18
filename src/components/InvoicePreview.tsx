@@ -26,6 +26,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     totalWeightKg,
     ppnRate,
     ppnAmount,
+    shippingCost,
     grandTotal,
     depositAmount,
     appliedDeposit,
@@ -33,10 +34,12 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
     isExcludeAdd,
   } = calculateInvoiceTotals(invoice);
   const hasDeposit = depositAmount > 0;
+  const hasShipping = shippingCost > 0;
+  const showSubtotalBreakdown = isExcludeAdd || hasShipping;
   const headerPalette = getTableHeaderPalette(invoice.tableHeaderColor);
 
   const hasLogo = Boolean(company.logoDataUrl);
-  const logoWidthPx = Math.min(Math.max(company.logoWidthMm || 16, 12), 85) * 3.7795;
+  const logoWidthPx = Math.min(Math.max(company.logoWidthMm || 16, 10), 115) * 3.7795;
 
   return (
     <div
@@ -71,7 +74,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                     referrerPolicy="no-referrer"
                     style={{
                       width: `${logoWidthPx}px`,
-                      maxHeight: '26mm',
+                      maxHeight: '55mm',
                       objectFit: 'contain',
                       objectPosition: 'left top',
                     }}
@@ -299,40 +302,58 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
             </tbody>
 
             <tfoot>
+              {showSubtotalBreakdown && (
+                <tr className="border-t border-slate-300 bg-white text-slate-700 font-medium">
+                  <td colSpan={4} className="px-2.5 py-2 text-right text-[11px] font-semibold text-slate-600">
+                    Total Berat
+                  </td>
+                  <td className="border-r border-slate-200 px-2 py-2 text-right text-[11px] font-semibold text-slate-700 whitespace-nowrap">
+                    {formatWeight(totalWeightKg, invoice.numberFormat)} kg
+                  </td>
+                  <td className="border-r border-slate-200 px-2.5 py-2 text-right text-[11.5px]">
+                    Subtotal
+                  </td>
+                  <td className="px-2.5 py-2">
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="text-slate-500 font-normal">{invoice.currency || 'Rp'}</span>
+                      <span className="text-right font-semibold text-slate-900">
+                        {formatAmount(subtotal, invoice.numberFormat)}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              )}
               {isExcludeAdd && (
-                <>
-                  <tr className="border-t border-slate-300 bg-white text-slate-700 font-medium">
-                    <td colSpan={4} className="px-2.5 py-2" />
-                    <td className="border-r border-slate-200 px-2 py-2 text-right text-[11px] text-slate-600">
-                      {formatWeight(totalWeightKg, invoice.numberFormat)} kg
-                    </td>
-                    <td className="border-r border-slate-200 px-2.5 py-2 text-right text-[11.5px]">
-                      Subtotal
-                    </td>
-                    <td className="px-2.5 py-2">
-                      <div className="flex items-center justify-between gap-1.5">
-                        <span className="text-slate-500 font-normal">{invoice.currency || 'Rp'}</span>
-                        <span className="text-right font-semibold text-slate-900">
-                          {formatAmount(subtotal, invoice.numberFormat)}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                  <tr className="border-t border-slate-200 bg-white text-slate-700 font-medium">
-                    <td colSpan={5} className="border-r border-slate-200 px-2.5 py-2" />
-                    <td className="border-r border-slate-200 px-2.5 py-2 text-right text-[11.5px]">
-                      PPN ({ppnRate}%)
-                    </td>
-                    <td className="px-2.5 py-2">
-                      <div className="flex items-center justify-between gap-1.5">
-                        <span className="text-slate-500 font-normal">{invoice.currency || 'Rp'}</span>
-                        <span className="text-right font-semibold text-slate-900">
-                          {formatAmount(ppnAmount, invoice.numberFormat)}
-                        </span>
-                      </div>
-                    </td>
-                  </tr>
-                </>
+                <tr className="border-t border-slate-200 bg-white text-slate-700 font-medium">
+                  <td colSpan={5} className="border-r border-slate-200 px-2.5 py-2" />
+                  <td className="border-r border-slate-200 px-2.5 py-2 text-right text-[11.5px]">
+                    PPN ({ppnRate}%)
+                  </td>
+                  <td className="px-2.5 py-2">
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="text-slate-500 font-normal">{invoice.currency || 'Rp'}</span>
+                      <span className="text-right font-semibold text-slate-900">
+                        {formatAmount(ppnAmount, invoice.numberFormat)}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
+              )}
+              {hasShipping && (
+                <tr className="border-t border-slate-200 bg-white text-slate-700 font-medium">
+                  <td colSpan={5} className="border-r border-slate-200 px-2.5 py-2" />
+                  <td className="border-r border-slate-200 px-2.5 py-2 text-right text-[11.5px]">
+                    {invoice.shippingLabel?.trim() || 'Biaya Ongkir'}
+                  </td>
+                  <td className="px-2.5 py-2">
+                    <div className="flex items-center justify-between gap-1.5">
+                      <span className="text-slate-500 font-normal">{invoice.currency || 'Rp'}</span>
+                      <span className="text-right font-semibold text-slate-900">
+                        {formatAmount(shippingCost, invoice.numberFormat)}
+                      </span>
+                    </div>
+                  </td>
+                </tr>
               )}
               <tr
                 className={
@@ -342,10 +363,10 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                 }
               >
                 <td colSpan={4} className="px-2.5 py-2.5 text-right text-[11px] font-semibold text-slate-600">
-                  {!isExcludeAdd ? 'Total Berat' : ''}
+                  {!showSubtotalBreakdown ? 'Total Berat' : ''}
                 </td>
                 <td className="border-r border-slate-300 px-2 py-2.5 text-right text-[11.5px] font-semibold text-slate-800 whitespace-nowrap">
-                  {!isExcludeAdd ? `${formatWeight(totalWeightKg, invoice.numberFormat)} kg` : ''}
+                  {!showSubtotalBreakdown ? `${formatWeight(totalWeightKg, invoice.numberFormat)} kg` : ''}
                 </td>
                 <td className="border-r border-slate-300 px-2.5 py-2.5 text-right text-[12px]">
                   Grand Total

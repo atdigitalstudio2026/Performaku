@@ -1,0 +1,349 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global Safety Net (Default-Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // =========================================================================
+    // Global Hardened Primitives
+    // =========================================================================
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isBootstrappedAdmin() {
+      return isVerifiedUser() && request.auth.token.email == 'acu.andi80@gmail.com';
+    }
+
+    function isAdmin() {
+      return isBootstrappedAdmin() || (
+        isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    // =========================================================================
+    // Nested Map Validation Helpers
+    // =========================================================================
+    function isValidBankMap(bank) {
+      return bank is map
+        && bank.keys().hasAll(['id', 'bankName', 'bankShortName', 'accountHolder', 'accountNumber'])
+        && bank.keys().hasOnly(['id', 'bankName', 'bankShortName', 'accountHolder', 'accountNumber'])
+        && bank.id is string && bank.id.size() <= 128
+        && bank.bankName is string && bank.bankName.size() <= 80
+        && bank.bankShortName is string && bank.bankShortName.size() <= 40
+        && bank.accountHolder is string && bank.accountHolder.size() <= 150
+        && bank.accountNumber is string && bank.accountNumber.size() <= 50;
+    }
+
+    function isValidCompanyMap(comp) {
+      return comp is map
+        && comp.keys().hasAll([
+          'name', 'addressLine1', 'addressLine2', 'phone', 'email',
+          'logoDataUrl', 'logoWidthMm', 'showLetterheadInfo', 'showLetterheadDivider'
+        ])
+        && comp.keys().hasOnly([
+          'name', 'addressLine1', 'addressLine2', 'phone', 'email',
+          'logoDataUrl', 'logoWidthMm', 'showLetterheadInfo', 'showLetterheadDivider'
+        ])
+        && comp.name is string && comp.name.size() <= 200
+        && comp.addressLine1 is string && comp.addressLine1.size() <= 250
+        && comp.addressLine2 is string && comp.addressLine2.size() <= 250
+        && comp.phone is string && comp.phone.size() <= 80
+        && comp.email is string && comp.email.size() <= 120
+        && comp.logoDataUrl is string && comp.logoDataUrl.size() <= 100000
+        && comp.logoWidthMm is number && comp.logoWidthMm >= 10 && comp.logoWidthMm <= 120
+        && comp.showLetterheadInfo is bool
+        && comp.showLetterheadDivider is bool;
+    }
+
+    function isValidFooterMap(ftr) {
+      return ftr is map
+        && ftr.keys().hasAll(['enabled', 'companyName', 'address', 'phone', 'fax'])
+        && ftr.keys().hasOnly(['enabled', 'companyName', 'address', 'phone', 'fax'])
+        && ftr.enabled is bool
+        && ftr.companyName is string && ftr.companyName.size() <= 200
+        && ftr.address is string && ftr.address.size() <= 250
+        && ftr.phone is string && ftr.phone.size() <= 80
+        && ftr.fax is string && ftr.fax.size() <= 80;
+    }
+
+    // =========================================================================
+    // Entity Validation Blueprints (Anti-Update-Gap)
+    // =========================================================================
+    function isValidInvoiceLog(data) {
+      return data.keys().hasAll([
+          'ownerId', 'ownerEmail', 'ownerName', 'actionType', 'status',
+          'title', 'cityDate', 'invoiceNumber', 'showInvoiceNumber',
+          'buyerName', 'buyerAddress', 'sellerName', 'currency', 'numberFormat',
+          'ppnMode', 'ppnRate', 'qtyHeader', 'priceHeader', 'taxLabel', 'qtyUnit',
+          'tableHeaderColor', 'depositAmount', 'depositLabel', 'additionalNote',
+          'highlightTransferTotal', 'showSignature', 'signatureName', 'signatureTitle',
+          'itemCount', 'totalWeightKg', 'subtotal', 'ppnAmount', 'grandTotal',
+          'appliedDeposit', 'netPayable', 'bankAccount', 'companySnapshot',
+          'footerSnapshot', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'ownerEmail', 'ownerName', 'actionType', 'status',
+          'title', 'cityDate', 'invoiceNumber', 'showInvoiceNumber',
+          'buyerName', 'buyerAddress', 'sellerName', 'currency', 'numberFormat',
+          'ppnMode', 'ppnRate', 'qtyHeader', 'priceHeader', 'taxLabel', 'qtyUnit',
+          'tableHeaderColor', 'shippingCost', 'shippingLabel', 'depositAmount', 'depositLabel', 'additionalNote',
+          'highlightTransferTotal', 'showSignature', 'signatureName', 'signatureTitle',
+          'itemCount', 'totalWeightKg', 'subtotal', 'ppnAmount', 'grandTotal',
+          'appliedDeposit', 'netPayable', 'bankAccount', 'companySnapshot',
+          'footerSnapshot', 'createdAt', 'updatedAt'
+        ])
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.ownerEmail is string && data.ownerEmail.size() <= 200
+        && data.ownerName is string && data.ownerName.size() <= 120
+        && data.actionType is string && data.actionType in ['manual_save', 'pdf_export', 'print', 'restored']
+        && data.status is string && data.status in ['active', 'archived']
+        && data.title is string && data.title.size() >= 1 && data.title.size() <= 100
+        && data.cityDate is string && data.cityDate.size() <= 100
+        && data.invoiceNumber is string && data.invoiceNumber.size() <= 80
+        && data.showInvoiceNumber is bool
+        && data.buyerName is string && data.buyerName.size() <= 200
+        && data.buyerAddress is string && data.buyerAddress.size() <= 500
+        && data.sellerName is string && data.sellerName.size() <= 200
+        && data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10
+        && data.numberFormat is string && data.numberFormat in ['comma', 'dot']
+        && data.ppnMode is string && data.ppnMode in ['include', 'exclude_add', 'non_ppn']
+        && data.ppnRate is number && data.ppnRate >= 0 && data.ppnRate <= 100
+        && data.qtyHeader is string && data.qtyHeader.size() <= 50
+        && data.priceHeader is string && data.priceHeader.size() <= 50
+        && data.taxLabel is string && data.taxLabel.size() <= 50
+        && data.qtyUnit is string && data.qtyUnit.size() <= 30
+        && data.tableHeaderColor is string && data.tableHeaderColor.size() == 7
+        && data.tableHeaderColor.matches('^#[0-9a-fA-F]{6}$')
+        && (!('shippingCost' in data) || (data.shippingCost is number && data.shippingCost >= 0))
+        && (!('shippingLabel' in data) || (data.shippingLabel is string && data.shippingLabel.size() <= 100))
+        && data.depositAmount is number && data.depositAmount >= 0
+        && data.depositLabel is string && data.depositLabel.size() <= 100
+        && data.additionalNote is string && data.additionalNote.size() <= 1000
+        && data.highlightTransferTotal is bool
+        && data.showSignature is bool
+        && data.signatureName is string && data.signatureName.size() <= 100
+        && data.signatureTitle is string && data.signatureTitle.size() <= 120
+        && data.itemCount is int && data.itemCount >= 0 && data.itemCount <= 200
+        && data.totalWeightKg is number && data.totalWeightKg >= 0
+        && data.subtotal is number && data.subtotal >= 0
+        && data.ppnAmount is number && data.ppnAmount >= 0
+        && data.grandTotal is number && data.grandTotal >= 0
+        && data.appliedDeposit is number && data.appliedDeposit >= 0
+        && data.netPayable is number && data.netPayable >= 0
+        && isValidBankMap(data.bankAccount)
+        && isValidCompanyMap(data.companySnapshot)
+        && isValidFooterMap(data.footerSnapshot)
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidInvoiceLogItem(data, logId) {
+      return data.keys().hasAll([
+          'ownerId', 'logId', 'orderIndex', 'namaBarang',
+          'orderUnit', 'weightPerUnit', 'harga', 'priceBasis', 'qty', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'logId', 'orderIndex', 'namaBarang',
+          'orderUnit', 'weightPerUnit', 'harga', 'priceBasis', 'qty', 'createdAt'
+        ])
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.logId is string && data.logId == logId
+        && data.orderIndex is int && data.orderIndex >= 0 && data.orderIndex <= 500
+        && data.namaBarang is string && data.namaBarang.size() <= 200
+        && data.orderUnit is string && data.orderUnit.size() >= 1 && data.orderUnit.size() <= 30
+        && data.weightPerUnit is number && data.weightPerUnit >= 0
+        && data.harga is number && data.harga >= 0
+        && data.priceBasis is string && data.priceBasis in ['per_kg', 'per_unit']
+        && data.qty is number && data.qty >= 0
+        && data.createdAt is timestamp;
+    }
+
+    function isValidBankAccountRecord(data) {
+      return data.keys().hasAll([
+          'ownerId', 'bankName', 'bankShortName', 'accountHolder',
+          'accountNumber', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'bankName', 'bankShortName', 'accountHolder',
+          'accountNumber', 'createdAt', 'updatedAt'
+        ])
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && data.bankName is string && data.bankName.size() >= 1 && data.bankName.size() <= 80
+        && data.bankShortName is string && data.bankShortName.size() >= 1 && data.bankShortName.size() <= 40
+        && data.accountHolder is string && data.accountHolder.size() >= 1 && data.accountHolder.size() <= 150
+        && data.accountNumber is string && data.accountNumber.size() >= 1 && data.accountNumber.size() <= 50
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidUserPreference(data) {
+      return data.keys().hasAll(['ownerId', 'company', 'footer', 'updatedAt'])
+        && data.keys().hasOnly(['ownerId', 'company', 'footer', 'updatedAt'])
+        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && isValidCompanyMap(data.company)
+        && isValidFooterMap(data.footer)
+        && data.updatedAt is timestamp;
+    }
+
+    // =========================================================================
+    // Collection Rules
+    // =========================================================================
+
+    // 1. Proforma Invoice Audit Logs
+    match /invoiceLogs/{logId} {
+      allow get: if isVerifiedUser() && isValidId(logId) && (
+        existing().ownerId == request.auth.uid || isAdmin()
+      );
+
+      allow list: if isVerifiedUser() && (
+        existing().ownerId == request.auth.uid || isBootstrappedAdmin()
+      );
+
+      allow create: if isVerifiedUser()
+        && isValidId(logId)
+        && isValidInvoiceLog(incoming())
+        && incoming().keys().hasAll(['shippingCost', 'shippingLabel'])
+        && incoming().ownerId == request.auth.uid
+        && incoming().status == 'active'
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(logId)
+        && isValidInvoiceLog(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            existing().ownerId == request.auth.uid
+            && existing().status != 'archived'
+            && (
+              (incoming().status == 'archived'
+                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+              ||
+              (incoming().diff(existing()).affectedKeys().hasOnly(['actionType', 'updatedAt']))
+            )
+          )
+        );
+
+      allow delete: if isVerifiedUser() && isValidId(logId) && (
+        existing().ownerId == request.auth.uid || isAdmin()
+      );
+
+      // Subcollection: Line items belonging to an InvoiceLog
+      match /items/{itemId} {
+        allow get: if isVerifiedUser() && isValidId(logId) && isValidId(itemId) && (
+          get(/databases/$(database)/documents/invoiceLogs/$(logId)).data.ownerId == request.auth.uid || isAdmin()
+        );
+
+        allow list: if isVerifiedUser() && isValidId(logId) && (
+          existing().ownerId == request.auth.uid || isBootstrappedAdmin()
+        );
+
+        allow create: if isVerifiedUser()
+          && isValidId(logId)
+          && isValidId(itemId)
+          && isValidInvoiceLogItem(incoming(), logId)
+          && incoming().ownerId == request.auth.uid
+          && incoming().createdAt == request.time
+          && existsAfter(/databases/$(database)/documents/invoiceLogs/$(logId))
+          && getAfter(/databases/$(database)/documents/invoiceLogs/$(logId)).data.ownerId == request.auth.uid;
+
+        allow update: if false;
+
+        allow delete: if isVerifiedUser() && isValidId(logId) && isValidId(itemId) && (
+          existing().ownerId == request.auth.uid || isAdmin()
+        );
+      }
+    }
+
+    // 2. Saved Bank Accounts
+    match /bankAccounts/{bankId} {
+      allow get: if isVerifiedUser() && isValidId(bankId) && (
+        existing().ownerId == request.auth.uid || isAdmin()
+      );
+
+      allow list: if isVerifiedUser() && (
+        existing().ownerId == request.auth.uid || isBootstrappedAdmin()
+      );
+
+      allow create: if isVerifiedUser()
+        && isValidId(bankId)
+        && isValidBankAccountRecord(incoming())
+        && incoming().ownerId == request.auth.uid
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(bankId)
+        && isValidBankAccountRecord(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            existing().ownerId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly([
+              'bankName', 'bankShortName', 'accountHolder', 'accountNumber', 'updatedAt'
+            ])
+          )
+        );
+
+      allow delete: if isVerifiedUser() && isValidId(bankId) && (
+        existing().ownerId == request.auth.uid || isAdmin()
+      );
+    }
+
+    // 3. User Preferences (Company Profile & Footer)
+    match /userSettings/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && (
+        userId == request.auth.uid || isAdmin()
+      );
+
+      allow list: if false;
+
+      allow create: if isVerifiedUser()
+        && isValidId(userId)
+        && userId == request.auth.uid
+        && isValidUserPreference(incoming())
+        && incoming().ownerId == request.auth.uid
+        && incoming().updatedAt == request.time;
+
+      allow update: if isVerifiedUser()
+        && isValidId(userId)
+        && isValidUserPreference(incoming())
+        && incoming().ownerId == existing().ownerId
+        && incoming().updatedAt == request.time
+        && (
+          isAdmin() || (
+            userId == request.auth.uid
+            && incoming().diff(existing()).affectedKeys().hasOnly(['company', 'footer', 'updatedAt'])
+          )
+        );
+
+      allow delete: if isVerifiedUser() && isValidId(userId) && (
+        userId == request.auth.uid || isAdmin()
+      );
+    }
+  }
+}

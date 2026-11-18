@@ -35,12 +35,12 @@ export async function downloadProformaInvoicePdf(
   if (hasLogo) {
     try {
       const raster = await loadImageAsPngDataUrl(company.logoDataUrl);
-      const maxLogoW = Math.min(Math.max(company.logoWidthMm || 16, 12), 85);
+      const maxLogoW = Math.min(Math.max(company.logoWidthMm || 16, 10), 115);
       const ratio = raster.height / raster.width;
       let drawW = maxLogoW;
       let drawH = drawW * ratio;
-      if (drawH > 26) {
-        drawH = 26;
+      if (drawH > 55) {
+        drawH = 55;
         drawW = drawH / ratio;
       }
       doc.addImage(raster.dataUrl, 'PNG', marginX, cursorY, drawW, drawH);
@@ -51,7 +51,7 @@ export async function downloadProformaInvoicePdf(
   }
 
   if (company.showLetterheadInfo) {
-    const textX = hasLogo ? marginX + Math.min(Math.max(company.logoWidthMm || 16, 12), 85) + 6 : marginX;
+    const textX = hasLogo ? marginX + Math.min(Math.max(company.logoWidthMm || 16, 10), 115) + 6 : marginX;
     const textAlign: 'left' | 'right' = hasLogo ? 'right' : 'left';
     const anchorX = hasLogo ? pageWidth - marginX : textX;
 
@@ -355,6 +355,7 @@ export async function downloadProformaInvoicePdf(
     totalWeightKg,
     ppnRate,
     ppnAmount,
+    shippingCost,
     grandTotal,
     depositAmount,
     appliedDeposit,
@@ -362,6 +363,8 @@ export async function downloadProformaInvoicePdf(
     isExcludeAdd,
   } = calculateInvoiceTotals(invoice);
   const hasDeposit = depositAmount > 0;
+  const hasShipping = shippingCost > 0;
+  const showSubtotalBreakdown = isExcludeAdd || hasShipping;
 
   const drawSummaryRow = (
     label: string,
@@ -458,9 +461,19 @@ export async function downloadProformaInvoicePdf(
     cursorY += rowH;
   };
 
-  if (isExcludeAdd) {
+  if (showSubtotalBreakdown) {
     drawSummaryRow('Subtotal', formatAmount(subtotal, invoice.numberFormat), false, true);
-    drawSummaryRow(`PPN (${ppnRate}%)`, formatAmount(ppnAmount, invoice.numberFormat), false, false);
+    if (isExcludeAdd) {
+      drawSummaryRow(`PPN (${ppnRate}%)`, formatAmount(ppnAmount, invoice.numberFormat), false, false);
+    }
+    if (hasShipping) {
+      drawSummaryRow(
+        invoice.shippingLabel?.trim() || 'Biaya Ongkir',
+        formatAmount(shippingCost, invoice.numberFormat),
+        false,
+        false
+      );
+    }
     drawSummaryRow(
       'Grand Total',
       formatAmount(grandTotal, invoice.numberFormat),

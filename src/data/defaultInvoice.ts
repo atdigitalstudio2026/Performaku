@@ -19,8 +19,8 @@ export const COMPANY_LOGO_PRESETS: CompanyLogoPreset[] = [
   {
     id: 'exindo',
     companyName: 'PT Exindokarsa Agung',
-    logoUrl: '/assets/aistudio/Exindo_logo_jpg_b93bc77a.jpg',
-    recommendedWidthMm: 26,
+    logoUrl: '/assets/aistudio/Exindo_logo_png_disesuaikan_a98b1909.png',
+    recommendedWidthMm: 34,
     defaultBankId: 'bca-exindo',
   },
   {
@@ -115,6 +115,8 @@ export const DEFAULT_INVOICE_DATA: ProformaInvoiceData = {
   currency: 'Rp',
   numberFormat: 'comma',
   tableHeaderColor: '#1E293B',
+  shippingCost: 0,
+  shippingLabel: 'Biaya Ongkir',
   depositAmount: 0,
   depositLabel: 'Deposit Kelebihan Bayar',
   items: [

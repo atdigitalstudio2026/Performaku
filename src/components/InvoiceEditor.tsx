@@ -163,6 +163,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
     totalWeightKg,
     ppnRate,
     ppnAmount,
+    shippingCost,
     grandTotal,
     depositAmount,
     appliedDeposit,
@@ -305,19 +306,87 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
         </div>
 
         {company.logoDataUrl && (
-          <div className="mb-4">
-            <div className="flex items-center justify-between text-xs text-slate-600 mb-1">
-              <span>Lebar Logo di Kop Surat</span>
-              <span className="font-mono tabular-nums text-slate-800">{company.logoWidthMm} mm</span>
+          <div className="mb-4 p-3 rounded-lg border border-slate-200 bg-white space-y-2.5">
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-xs font-medium text-slate-700">Ukuran Logo di Kop Surat</span>
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() =>
+                    onChangeCompany({
+                      ...company,
+                      logoWidthMm: Math.max(10, (company.logoWidthMm || 16) - 2),
+                    })
+                  }
+                  title="Perkecil 2 mm"
+                  className="w-6 h-6 rounded border border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 text-xs font-semibold cursor-pointer"
+                >
+                  -
+                </button>
+                <div className="flex items-center border border-slate-300 rounded bg-white px-1.5 py-0.5">
+                  <input
+                    type="number"
+                    min={10}
+                    max={115}
+                    value={company.logoWidthMm}
+                    onChange={(e) => {
+                      const val = Number(e.target.value);
+                      if (!Number.isFinite(val)) return;
+                      onChangeCompany({
+                        ...company,
+                        logoWidthMm: Math.min(115, Math.max(10, Math.round(val))),
+                      });
+                    }}
+                    className="w-10 text-xs font-mono tabular-nums text-right text-slate-900 focus:outline-none"
+                  />
+                  <span className="text-[11px] text-slate-500 ml-1">mm</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() =>
+                    onChangeCompany({
+                      ...company,
+                      logoWidthMm: Math.min(115, (company.logoWidthMm || 16) + 2),
+                    })
+                  }
+                  title="Perbesar 2 mm"
+                  className="w-6 h-6 rounded border border-slate-300 bg-slate-50 text-slate-700 hover:bg-slate-100 text-xs font-semibold cursor-pointer"
+                >
+                  +
+                </button>
+              </div>
             </div>
+
             <input
               type="range"
-              min={12}
-              max={80}
-              value={company.logoWidthMm}
+              min={10}
+              max={115}
+              value={Math.min(115, Math.max(10, company.logoWidthMm || 16))}
               onChange={(e) => onChangeCompany({ ...company, logoWidthMm: Number(e.target.value) })}
               className="w-full accent-[#1D4ED8] cursor-pointer"
             />
+
+            <div className="flex items-center justify-between gap-1.5 pt-0.5">
+              {[
+                { label: 'Kecil', width: 20 },
+                { label: 'Sedang', width: 32 },
+                { label: 'Besar', width: 48 },
+                { label: 'Ekstra', width: 70 },
+              ].map((opt) => (
+                <button
+                  key={opt.label}
+                  type="button"
+                  onClick={() => onChangeCompany({ ...company, logoWidthMm: opt.width })}
+                  className={`flex-1 py-1 text-[11px] font-medium rounded border transition-colors cursor-pointer ${
+                    company.logoWidthMm === opt.width
+                      ? 'border-[#1D4ED8] bg-blue-50 text-[#1D4ED8]'
+                      : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-slate-100'
+                  }`}
+                >
+                  {opt.label} ({opt.width}mm)
+                </button>
+              ))}
+            </div>
           </div>
         )}
 
@@ -835,8 +904,63 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
           </div>
         </div>
 
-        {/* Potongan Deposit Customer (Kelebihan Bayar Sebelumnya) */}
+        {/* Biaya Ongkir (Pengiriman) */}
         <div className="mt-4 p-3 rounded-lg border border-slate-200 bg-slate-50/70 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-semibold text-slate-800">Biaya Ongkir (Pengiriman)</div>
+              <div className="text-[11px] text-slate-500">
+                Opsional: tambahkan ongkos kirim jika pengiriman ditagihkan di invoice ini.
+              </div>
+            </div>
+            {shippingCost > 0 && (
+              <button
+                type="button"
+                onClick={() => onChangeInvoice({ ...invoice, shippingCost: 0 })}
+                className="text-[11px] font-medium text-slate-500 hover:text-red-600 transition-colors cursor-pointer shrink-0"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+            <div className="sm:col-span-5">
+              <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                Biaya Ongkir ({invoice.currency || 'Rp'})
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={shippingCost === 0 ? '' : shippingCost}
+                onChange={(e) =>
+                  onChangeInvoice({
+                    ...invoice,
+                    shippingCost: Math.max(0, Math.round(Number(e.target.value) || 0)),
+                  })
+                }
+                placeholder="0"
+                className="w-full px-2.5 py-1.5 text-sm font-mono tabular-nums rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+              />
+            </div>
+
+            <div className="sm:col-span-7">
+              <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                Keterangan Baris Ongkir di Invoice
+              </label>
+              <input
+                type="text"
+                value={invoice.shippingLabel ?? 'Biaya Ongkir'}
+                onChange={(e) => onChangeInvoice({ ...invoice, shippingLabel: e.target.value })}
+                placeholder="Biaya Ongkir"
+                className="w-full px-2.5 py-1.5 text-sm rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+              />
+            </div>
+          </div>
+        </div>
+
+        {/* Potongan Deposit Customer (Kelebihan Bayar Sebelumnya) */}
+        <div className="mt-3 p-3 rounded-lg border border-slate-200 bg-slate-50/70 space-y-2.5">
           <div className="flex items-center justify-between gap-2">
             <div>
               <div className="text-xs font-semibold text-slate-800">
@@ -903,22 +1027,34 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
 
         {/* Ringkasan Perhitungan Akhir */}
         <div className="mt-3 pt-3 border-t border-slate-200 flex justify-end">
-          <div className="text-right space-y-1 min-w-[220px]">
+          <div className="text-right space-y-1 min-w-[240px]">
+            {(isExcludeAdd || shippingCost > 0) && (
+              <div className="flex items-center justify-between gap-6 text-[11px] text-slate-500 font-mono tabular-nums">
+                <span className="font-sans">Subtotal</span>
+                <span>
+                  {invoice.currency} {formatAmount(subtotal, invoice.numberFormat)}
+                </span>
+              </div>
+            )}
+
             {isExcludeAdd && (
-              <>
-                <div className="flex items-center justify-between gap-6 text-[11px] text-slate-500 font-mono tabular-nums">
-                  <span>Subtotal</span>
-                  <span>
-                    {invoice.currency} {formatAmount(subtotal, invoice.numberFormat)}
-                  </span>
-                </div>
-                <div className="flex items-center justify-between gap-6 text-[11px] text-slate-600 font-mono tabular-nums">
-                  <span>PPN ({ppnRate}%)</span>
-                  <span>
-                    {invoice.currency} {formatAmount(ppnAmount, invoice.numberFormat)}
-                  </span>
-                </div>
-              </>
+              <div className="flex items-center justify-between gap-6 text-[11px] text-slate-600 font-mono tabular-nums">
+                <span className="font-sans">PPN ({ppnRate}%)</span>
+                <span>
+                  {invoice.currency} {formatAmount(ppnAmount, invoice.numberFormat)}
+                </span>
+              </div>
+            )}
+
+            {shippingCost > 0 && (
+              <div className="flex items-center justify-between gap-6 text-[11px] text-slate-600 font-mono tabular-nums">
+                <span className="font-sans truncate max-w-[160px]">
+                  {invoice.shippingLabel?.trim() || 'Biaya Ongkir'}
+                </span>
+                <span>
+                  {invoice.currency} {formatAmount(shippingCost, invoice.numberFormat)}
+                </span>
+              </div>
             )}
 
             <div
