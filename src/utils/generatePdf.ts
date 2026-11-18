@@ -5,6 +5,7 @@ import {
   calculateItemMetrics,
   formatAmount,
   formatWeight,
+  getTableHeaderPalette,
   loadImageAsPngDataUrl,
   sanitizeFilename,
 } from './formatters';
@@ -196,23 +197,30 @@ export async function downloadProformaInvoicePdf(
     jumlah: marginX + colW.no + colW.nama + colW.qty + colW.isi + colW.totalBerat + colW.harga,
   };
 
+  const headerPalette = getTableHeaderPalette(invoice.tableHeaderColor);
+
   const drawTableHeader = (startY: number): number => {
     const hTop = 6.5;
     const hSub = 5.2;
     const totalH = hTop + hSub; // 11.7mm
 
-    // Deep slate #1E293B top fill, #273549 sub-header fill for grouped sub-columns
-    doc.setFillColor(30, 41, 59);
+    const [mr, mg, mb] = headerPalette.mainRgb;
+    const [sr, sg, sb] = headerPalette.subRgb;
+    const [br, bg, bb] = headerPalette.borderRgb;
+    const [tr, tg, tb] = headerPalette.textRgb;
+    const [str, stg, stb] = headerPalette.subTextRgb;
+
+    doc.setFillColor(mr, mg, mb);
     doc.rect(marginX, startY, contentWidth, hTop, 'F');
-    doc.setFillColor(39, 53, 73);
+    doc.setFillColor(sr, sg, sb);
     doc.rect(colX.isi, startY + hTop, colW.isi + colW.totalBerat + colW.harga, hSub, 'F');
-    // Keep spanning columns solid #1E293B
-    doc.setFillColor(30, 41, 59);
+    // Keep spanning columns solid main color
+    doc.setFillColor(mr, mg, mb);
     doc.rect(marginX, startY + hTop, colW.no + colW.nama + colW.qty, hSub, 'F');
     doc.rect(colX.jumlah, startY + hTop, colW.jumlah, hSub, 'F');
 
-    // Subtle header dividers (#334155)
-    doc.setDrawColor(51, 65, 85);
+    // Harmonic header dividers
+    doc.setDrawColor(br, bg, bb);
     doc.setLineWidth(0.25);
     doc.line(colX.nama, startY, colX.nama, startY + totalH);
     doc.line(colX.qty, startY, colX.qty, startY + totalH);
@@ -224,7 +232,7 @@ export async function downloadProformaInvoicePdf(
 
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.2);
-    doc.setTextColor(255, 255, 255);
+    doc.setTextColor(tr, tg, tb);
 
     doc.text('No', colX.no + colW.no / 2, startY + totalH / 2 + 1, { align: 'center' });
     doc.text('Nama Barang', colX.nama + 2.5, startY + totalH / 2 + 1);
@@ -244,7 +252,7 @@ export async function downloadProformaInvoicePdf(
 
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
-    doc.setTextColor(203, 213, 225);
+    doc.setTextColor(str, stg, stb);
     doc.text('Isi / Unit', colX.isi + colW.isi / 2, startY + hTop + 3.6, { align: 'center' });
     doc.text('Total', colX.totalBerat + colW.totalBerat - 2, startY + hTop + 3.6, {
       align: 'right',
@@ -341,23 +349,34 @@ export async function downloadProformaInvoicePdf(
     cursorY += rowH;
   }
 
-  // Totals (Subtotal + PPN when exclude_add, then executive Grand Total)
-  const { subtotal, totalWeightKg, ppnRate, ppnAmount, grandTotal, isExcludeAdd } =
-    calculateInvoiceTotals(invoice);
+  // Totals (Subtotal + PPN when exclude_add, Grand Total, optional Deposit deduction & Sisa Pembayaran)
+  const {
+    subtotal,
+    totalWeightKg,
+    ppnRate,
+    ppnAmount,
+    grandTotal,
+    depositAmount,
+    appliedDeposit,
+    netPayable,
+    isExcludeAdd,
+  } = calculateInvoiceTotals(invoice);
+  const hasDeposit = depositAmount > 0;
 
   const drawSummaryRow = (
     label: string,
-    amount: number,
-    isGrandTotal: boolean,
-    showWeightSummary: boolean
+    formattedAmount: string,
+    isFinalHighlight: boolean,
+    showWeightSummary: boolean,
+    isDeduction = false
   ) => {
-    const rowH = isGrandTotal ? 8.5 : 7.5;
+    const rowH = isFinalHighlight ? 8.5 : 7.5;
     if (cursorY + rowH > pageHeight - 50) {
       doc.addPage();
       cursorY = 18;
     }
 
-    if (isGrandTotal) {
+    if (isFinalHighlight) {
       doc.setFillColor(241, 245, 249);
       doc.rect(marginX, cursorY, contentWidth, rowH, 'F');
     }
@@ -371,7 +390,7 @@ export async function downloadProformaInvoicePdf(
       doc.line(colX.harga, cursorY, colX.harga, cursorY + rowH);
     }
 
-    if (isGrandTotal) {
+    if (isFinalHighlight) {
       doc.setDrawColor(30, 41, 59);
       doc.setLineWidth(0.5);
       doc.line(marginX, cursorY, pageWidth - marginX, cursorY);
@@ -384,7 +403,7 @@ export async function downloadProformaInvoicePdf(
       doc.line(marginX, cursorY + rowH, pageWidth - marginX, cursorY + rowH);
     }
 
-    const textY = cursorY + (isGrandTotal ? 5.6 : 5.0);
+    const textY = cursorY + (isFinalHighlight ? 5.6 : 5.0);
 
     if (showWeightSummary) {
       doc.setFont('helvetica', 'normal');
@@ -401,18 +420,38 @@ export async function downloadProformaInvoicePdf(
       );
     }
 
-    doc.setFont('helvetica', isGrandTotal ? 'bold' : 'normal');
-    doc.setFontSize(isGrandTotal ? 9.2 : 8.8);
-    doc.setTextColor(isGrandTotal ? 15 : 71, isGrandTotal ? 23 : 85, isGrandTotal ? 42 : 105);
+    doc.setFont('helvetica', isFinalHighlight ? 'bold' : 'normal');
+    doc.setFontSize(isFinalHighlight ? 9.2 : 8.8);
+    if (isDeduction) {
+      doc.setTextColor(4, 120, 87);
+    } else {
+      doc.setTextColor(
+        isFinalHighlight ? 15 : 71,
+        isFinalHighlight ? 23 : 85,
+        isFinalHighlight ? 42 : 105
+      );
+    }
     doc.text(label, colX.jumlah - 2.5, textY, { align: 'right' });
 
-    doc.setFont('helvetica', isGrandTotal ? 'bold' : 'normal');
-    doc.setTextColor(isGrandTotal ? 15 : 100, isGrandTotal ? 23 : 116, isGrandTotal ? 42 : 139);
+    doc.setFont('helvetica', isFinalHighlight ? 'bold' : 'normal');
+    if (isDeduction) {
+      doc.setTextColor(4, 120, 87);
+    } else {
+      doc.setTextColor(
+        isFinalHighlight ? 15 : 100,
+        isFinalHighlight ? 23 : 116,
+        isFinalHighlight ? 42 : 139
+      );
+    }
     doc.text(invoice.currency || 'Rp', colX.jumlah + 2.5, textY);
 
     doc.setFont('helvetica', 'bold');
-    doc.setTextColor(15, 23, 42);
-    doc.text(formatAmount(amount, invoice.numberFormat), colX.jumlah + colW.jumlah - 2.5, textY, {
+    if (isDeduction) {
+      doc.setTextColor(4, 120, 87);
+    } else {
+      doc.setTextColor(15, 23, 42);
+    }
+    doc.text(formattedAmount, colX.jumlah + colW.jumlah - 2.5, textY, {
       align: 'right',
     });
 
@@ -420,11 +459,32 @@ export async function downloadProformaInvoicePdf(
   };
 
   if (isExcludeAdd) {
-    drawSummaryRow('Subtotal', subtotal, false, true);
-    drawSummaryRow(`PPN (${ppnRate}%)`, ppnAmount, false, false);
-    drawSummaryRow('Grand Total', grandTotal, true, false);
+    drawSummaryRow('Subtotal', formatAmount(subtotal, invoice.numberFormat), false, true);
+    drawSummaryRow(`PPN (${ppnRate}%)`, formatAmount(ppnAmount, invoice.numberFormat), false, false);
+    drawSummaryRow(
+      'Grand Total',
+      formatAmount(grandTotal, invoice.numberFormat),
+      !hasDeposit,
+      false
+    );
   } else {
-    drawSummaryRow('Grand Total', grandTotal, true, true);
+    drawSummaryRow(
+      'Grand Total',
+      formatAmount(grandTotal, invoice.numberFormat),
+      !hasDeposit,
+      true
+    );
+  }
+
+  if (hasDeposit) {
+    drawSummaryRow(
+      invoice.depositLabel?.trim() || 'Deposit Kelebihan Bayar',
+      `- ${formatAmount(appliedDeposit, invoice.numberFormat)}`,
+      false,
+      false,
+      true
+    );
+    drawSummaryRow('Sisa Pembayaran', formatAmount(netPayable, invoice.numberFormat), true, false);
   }
 
   cursorY += 8;
@@ -487,7 +547,7 @@ export async function downloadProformaInvoicePdf(
   doc.setTextColor(15, 23, 42);
   doc.text('Nilai Transfer', boxX + 3, boxY + 4.9);
   doc.text(invoice.currency || 'Rp', boxX + 68, boxY + 4.9);
-  doc.text(formatAmount(grandTotal, invoice.numberFormat), boxX + transferBarW - 3, boxY + 4.9, {
+  doc.text(formatAmount(netPayable, invoice.numberFormat), boxX + transferBarW - 3, boxY + 4.9, {
     align: 'right',
   });
 

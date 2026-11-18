@@ -56,6 +56,9 @@ export interface ProformaInvoiceData {
   qtyUnit: string;
   currency: string;
   numberFormat: 'comma' | 'dot';
+  tableHeaderColor?: string;
+  depositAmount?: number;
+  depositLabel?: string;
   items: InvoiceItem[];
   bankAccount: BankAccount;
   additionalNote: string;

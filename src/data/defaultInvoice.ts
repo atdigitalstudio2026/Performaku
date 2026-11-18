@@ -90,6 +90,15 @@ export const DEFAULT_BANK_ACCOUNTS: BankAccount[] = [
   },
 ];
 
+export const TABLE_HEADER_COLOR_PRESETS = [
+  { label: 'Slate Gelap', hex: '#1E293B' },
+  { label: 'Biru Korporat', hex: '#0B4F9C' },
+  { label: 'Hijau Agro', hex: '#0B7A4B' },
+  { label: 'Teal', hex: '#0F766E' },
+  { label: 'Abu Klasik', hex: '#A6A6A6' },
+  { label: 'Abu Terang', hex: '#E2E8F0' },
+];
+
 export const DEFAULT_INVOICE_DATA: ProformaInvoiceData = {
   title: 'PROFORMA INVOICE',
   invoiceNumber: 'PI/SRA/2026/11/001',
@@ -105,6 +114,9 @@ export const DEFAULT_INVOICE_DATA: ProformaInvoiceData = {
   qtyUnit: 'Kg',
   currency: 'Rp',
   numberFormat: 'comma',
+  tableHeaderColor: '#1E293B',
+  depositAmount: 0,
+  depositLabel: 'Deposit Kelebihan Bayar',
   items: [
     {
       id: 'item-1',

@@ -54,6 +54,10 @@ export interface InvoiceTotals {
   ppnRate: number;
   ppnAmount: number;
   grandTotal: number;
+  depositAmount: number;
+  appliedDeposit: number;
+  remainingDeposit: number;
+  netPayable: number;
   isExcludeAdd: boolean;
 }
 
@@ -73,13 +77,91 @@ export function calculateInvoiceTotals(invoice: ProformaInvoiceData): InvoiceTot
   const ppnAmount = isExcludeAdd ? Math.round((subtotal * ppnRate) / 100) : 0;
   const grandTotal = subtotal + ppnAmount;
 
+  const depositAmount = Math.max(0, Math.round(Number(invoice.depositAmount) || 0));
+  const appliedDeposit = Math.min(grandTotal, depositAmount);
+  const remainingDeposit = Math.max(0, depositAmount - grandTotal);
+  const netPayable = Math.max(0, grandTotal - depositAmount);
+
   return {
     subtotal,
     totalWeightKg,
     ppnRate,
     ppnAmount,
     grandTotal,
+    depositAmount,
+    appliedDeposit,
+    remainingDeposit,
+    netPayable,
     isExcludeAdd,
+  };
+}
+
+export interface TableHeaderPalette {
+  mainHex: string;
+  subHex: string;
+  borderHex: string;
+  textHex: string;
+  subTextHex: string;
+  mainRgb: [number, number, number];
+  subRgb: [number, number, number];
+  borderRgb: [number, number, number];
+  textRgb: [number, number, number];
+  subTextRgb: [number, number, number];
+}
+
+function clampByte(v: number): number {
+  return Math.max(0, Math.min(255, Math.round(v)));
+}
+
+function rgbToHex(r: number, g: number, b: number): string {
+  return (
+    '#' +
+    [r, g, b]
+      .map((x) => clampByte(x).toString(16).padStart(2, '0'))
+      .join('')
+  );
+}
+
+export function getTableHeaderPalette(inputHex?: string): TableHeaderPalette {
+  const clean = /^#[0-9a-fA-F]{6}$/.test(inputHex || '') ? (inputHex as string) : '#1E293B';
+  const r = parseInt(clean.slice(1, 3), 16);
+  const g = parseInt(clean.slice(3, 5), 16);
+  const b = parseInt(clean.slice(5, 7), 16);
+
+  // Perceived brightness (0..255)
+  const luminance = 0.299 * r + 0.587 * g + 0.114 * b;
+  const isLight = luminance > 160;
+
+  // Sub-header shifts slightly lighter on dark headers, slightly darker on light headers
+  const shift = isLight ? -16 : 14;
+  const subRgb: [number, number, number] = [
+    clampByte(r + shift),
+    clampByte(g + shift),
+    clampByte(b + shift),
+  ];
+
+  // Border shifts stronger for clear separation
+  const borderShift = isLight ? -36 : 26;
+  const borderRgb: [number, number, number] = [
+    clampByte(r + borderShift),
+    clampByte(g + borderShift),
+    clampByte(b + borderShift),
+  ];
+
+  const textRgb: [number, number, number] = isLight ? [15, 23, 42] : [255, 255, 255];
+  const subTextRgb: [number, number, number] = isLight ? [51, 65, 85] : [226, 232, 240];
+
+  return {
+    mainHex: clean,
+    subHex: rgbToHex(...subRgb),
+    borderHex: rgbToHex(...borderRgb),
+    textHex: rgbToHex(...textRgb),
+    subTextHex: rgbToHex(...subTextRgb),
+    mainRgb: [r, g, b],
+    subRgb,
+    borderRgb,
+    textRgb,
+    subTextRgb,
   };
 }
 

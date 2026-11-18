@@ -386,7 +386,10 @@ export default function App() {
             company={company}
             onSaveCurrentDraft={handleSaveDraft}
             onLoadDraft={(draft) => {
-              setInvoice(JSON.parse(JSON.stringify(draft.data)) as ProformaInvoiceData);
+              setInvoice({
+                ...DEFAULT_INVOICE_DATA,
+                ...(JSON.parse(JSON.stringify(draft.data)) as ProformaInvoiceData),
+              });
               setActiveTab('editor');
               showNotice('Draft dimuat ke editor.');
             }}

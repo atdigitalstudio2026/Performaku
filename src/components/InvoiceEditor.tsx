@@ -15,6 +15,7 @@ import {
   COMPANY_LOGO_PRESETS,
   CompanyLogoPreset,
   DEFAULT_BANK_ACCOUNTS,
+  TABLE_HEADER_COLOR_PRESETS,
 } from '../data/defaultInvoice';
 import {
   BankAccount,
@@ -157,8 +158,18 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
     });
   };
 
-  const { subtotal, totalWeightKg, ppnRate, ppnAmount, grandTotal, isExcludeAdd } =
-    calculateInvoiceTotals(invoice);
+  const {
+    subtotal,
+    totalWeightKg,
+    ppnRate,
+    ppnAmount,
+    grandTotal,
+    depositAmount,
+    appliedDeposit,
+    remainingDeposit,
+    netPayable,
+    isExcludeAdd,
+  } = calculateInvoiceTotals(invoice);
   const activePpnMode: PpnMode = invoice.ppnMode ?? 'include';
 
   return (
@@ -553,6 +564,47 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
               </div>
             </div>
           )}
+
+          {/* Warna Header Tabel */}
+          <div className="flex flex-wrap items-center justify-between gap-2 pt-2 border-t border-slate-200">
+            <span className="text-xs font-medium text-slate-700">Warna Header Tabel</span>
+            <div className="flex items-center gap-1.5">
+              {TABLE_HEADER_COLOR_PRESETS.map((preset) => {
+                const activeHex = (invoice.tableHeaderColor || '#1E293B').toUpperCase();
+                const isSelected = activeHex === preset.hex.toUpperCase();
+                return (
+                  <button
+                    key={preset.hex}
+                    type="button"
+                    title={preset.label}
+                    aria-label={`Pilih warna header ${preset.label}`}
+                    onClick={() => onChangeInvoice({ ...invoice, tableHeaderColor: preset.hex })}
+                    className={`w-6 h-6 rounded border transition-transform cursor-pointer ${
+                      isSelected
+                        ? 'ring-2 ring-[#1D4ED8] ring-offset-1 scale-105 border-slate-400'
+                        : 'border-slate-300 hover:scale-105'
+                    }`}
+                    style={{ backgroundColor: preset.hex }}
+                  />
+                );
+              })}
+
+              <label
+                title="Pilih warna kustom"
+                className="inline-flex items-center gap-1.5 pl-1.5 pr-2 py-1 rounded border border-slate-300 bg-white text-[11px] font-mono text-slate-700 cursor-pointer hover:bg-slate-50"
+              >
+                <input
+                  type="color"
+                  value={invoice.tableHeaderColor || '#1E293B'}
+                  onChange={(e) =>
+                    onChangeInvoice({ ...invoice, tableHeaderColor: e.target.value })
+                  }
+                  className="w-4 h-4 p-0 border-0 bg-transparent cursor-pointer"
+                />
+                <span>{(invoice.tableHeaderColor || '#1E293B').toUpperCase()}</span>
+              </label>
+            </div>
+          </div>
         </div>
 
         {showColumnSettings && (
@@ -768,7 +820,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
           })}
         </div>
 
-        <div className="mt-3 flex items-end justify-between gap-4">
+        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
           <button
             type="button"
             onClick={addItem}
@@ -778,24 +830,128 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
             Tambah Barang
           </button>
 
-          <div className="text-right space-y-0.5">
-            <div className="text-[11px] text-slate-500 font-mono tabular-nums">
-              Total Berat: {formatWeight(totalWeightKg, invoice.numberFormat)} kg
+          <div className="text-[11px] text-slate-500 font-mono tabular-nums">
+            Total Berat: {formatWeight(totalWeightKg, invoice.numberFormat)} kg
+          </div>
+        </div>
+
+        {/* Potongan Deposit Customer (Kelebihan Bayar Sebelumnya) */}
+        <div className="mt-4 p-3 rounded-lg border border-slate-200 bg-slate-50/70 space-y-2.5">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <div className="text-xs font-semibold text-slate-800">
+                Deposit Customer (Kelebihan Bayar)
+              </div>
+              <div className="text-[11px] text-slate-500">
+                Masukkan saldo deposit dari kelebihan bayar sebelumnya untuk mengurangi tagihan otomatis.
+              </div>
             </div>
+            {depositAmount > 0 && (
+              <button
+                type="button"
+                onClick={() => onChangeInvoice({ ...invoice, depositAmount: 0 })}
+                className="text-[11px] font-medium text-slate-500 hover:text-red-600 transition-colors cursor-pointer shrink-0"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5">
+            <div className="sm:col-span-5">
+              <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                Nilai Deposit ({invoice.currency || 'Rp'})
+              </label>
+              <input
+                type="number"
+                min={0}
+                value={depositAmount === 0 ? '' : depositAmount}
+                onChange={(e) =>
+                  onChangeInvoice({
+                    ...invoice,
+                    depositAmount: Math.max(0, Math.round(Number(e.target.value) || 0)),
+                  })
+                }
+                placeholder="0"
+                className="w-full px-2.5 py-1.5 text-sm font-mono tabular-nums rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+              />
+            </div>
+
+            <div className="sm:col-span-7">
+              <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                Keterangan Baris Deposit di Invoice
+              </label>
+              <input
+                type="text"
+                value={invoice.depositLabel ?? 'Deposit Kelebihan Bayar'}
+                onChange={(e) => onChangeInvoice({ ...invoice, depositLabel: e.target.value })}
+                placeholder="Deposit Kelebihan Bayar"
+                className="w-full px-2.5 py-1.5 text-sm rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+              />
+            </div>
+          </div>
+
+          {remainingDeposit > 0 && (
+            <div className="text-[11px] text-amber-800 bg-amber-50 border border-amber-200 rounded px-2.5 py-1.5 font-medium tabular-nums">
+              Deposit melebihi tagihan. Sisa deposit customer setelah transaksi ini:{' '}
+              <span className="font-mono font-semibold">
+                {invoice.currency} {formatAmount(remainingDeposit, invoice.numberFormat)}
+              </span>
+            </div>
+          )}
+        </div>
+
+        {/* Ringkasan Perhitungan Akhir */}
+        <div className="mt-3 pt-3 border-t border-slate-200 flex justify-end">
+          <div className="text-right space-y-1 min-w-[220px]">
             {isExcludeAdd && (
               <>
-                <div className="text-[11px] text-slate-500 font-mono tabular-nums">
-                  Subtotal: {invoice.currency} {formatAmount(subtotal, invoice.numberFormat)}
+                <div className="flex items-center justify-between gap-6 text-[11px] text-slate-500 font-mono tabular-nums">
+                  <span>Subtotal</span>
+                  <span>
+                    {invoice.currency} {formatAmount(subtotal, invoice.numberFormat)}
+                  </span>
                 </div>
-                <div className="text-[11px] text-slate-600 font-mono tabular-nums">
-                  PPN ({ppnRate}%): {invoice.currency} {formatAmount(ppnAmount, invoice.numberFormat)}
+                <div className="flex items-center justify-between gap-6 text-[11px] text-slate-600 font-mono tabular-nums">
+                  <span>PPN ({ppnRate}%)</span>
+                  <span>
+                    {invoice.currency} {formatAmount(ppnAmount, invoice.numberFormat)}
+                  </span>
                 </div>
               </>
             )}
-            <div className="text-[11px] text-slate-500">Grand Total</div>
-            <div className="text-base font-bold text-slate-900 font-mono tabular-nums">
-              {invoice.currency} {formatAmount(grandTotal, invoice.numberFormat)}
+
+            <div
+              className={`flex items-center justify-between gap-6 font-mono tabular-nums ${
+                depositAmount > 0
+                  ? 'text-xs text-slate-700 font-medium'
+                  : 'text-base font-bold text-slate-900'
+              }`}
+            >
+              <span className="font-sans">Grand Total</span>
+              <span>
+                {invoice.currency} {formatAmount(grandTotal, invoice.numberFormat)}
+              </span>
             </div>
+
+            {depositAmount > 0 && (
+              <>
+                <div className="flex items-center justify-between gap-6 text-xs text-emerald-700 font-mono tabular-nums">
+                  <span className="font-sans truncate max-w-[160px]">
+                    {invoice.depositLabel?.trim() || 'Deposit Kelebihan Bayar'}
+                  </span>
+                  <span>
+                    - {invoice.currency} {formatAmount(appliedDeposit, invoice.numberFormat)}
+                  </span>
+                </div>
+                <div className="pt-1 border-t border-slate-200 flex items-center justify-between gap-6 text-base font-bold text-slate-900 font-mono tabular-nums">
+                  <span className="font-sans">Sisa Pembayaran</span>
+                  <span>
+                    {invoice.currency} {formatAmount(netPayable, invoice.numberFormat)}
+                  </span>
+                </div>
+              </>
+            )}
           </div>
         </div>
       </section>

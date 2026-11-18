@@ -5,6 +5,7 @@ import {
   calculateItemMetrics,
   formatAmount,
   formatWeight,
+  getTableHeaderPalette,
 } from '../utils/formatters';
 
 interface InvoicePreviewProps {
@@ -20,8 +21,19 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   footer,
   scale = 1,
 }) => {
-  const { subtotal, totalWeightKg, ppnRate, ppnAmount, grandTotal, isExcludeAdd } =
-    calculateInvoiceTotals(invoice);
+  const {
+    subtotal,
+    totalWeightKg,
+    ppnRate,
+    ppnAmount,
+    grandTotal,
+    depositAmount,
+    appliedDeposit,
+    netPayable,
+    isExcludeAdd,
+  } = calculateInvoiceTotals(invoice);
+  const hasDeposit = depositAmount > 0;
+  const headerPalette = getTableHeaderPalette(invoice.tableHeaderColor);
 
   const hasLogo = Boolean(company.logoDataUrl);
   const logoWidthPx = Math.min(Math.max(company.logoWidthMm || 16, 12), 85) * 3.7795;
@@ -153,32 +165,51 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         <div className="mb-7 overflow-hidden rounded-md border border-slate-300">
           <table className="w-full border-collapse text-[11.5px] tabular-nums">
             <thead>
-              <tr className="bg-[#1E293B] text-white font-semibold">
+              <tr
+                className="font-semibold"
+                style={{
+                  backgroundColor: headerPalette.mainHex,
+                  color: headerPalette.textHex,
+                }}
+              >
                 <th
                   rowSpan={2}
-                  className="border-r border-slate-700 px-2 py-2 text-center w-[9mm] text-[11px]"
+                  className="px-2 py-2 text-center w-[9mm] text-[11px]"
+                  style={{ borderRight: `1px solid ${headerPalette.borderHex}` }}
                 >
                   No
                 </th>
                 <th
                   rowSpan={2}
-                  className="border-r border-slate-700 px-2.5 py-2 text-left w-[51mm] text-[11px]"
+                  className="px-2.5 py-2 text-left w-[51mm] text-[11px]"
+                  style={{ borderRight: `1px solid ${headerPalette.borderHex}` }}
                 >
                   Nama Barang
                 </th>
                 <th
                   rowSpan={2}
-                  className="border-r border-slate-700 px-2 py-2 text-center w-[21mm] text-[11px]"
+                  className="px-2 py-2 text-center w-[21mm] text-[11px]"
+                  style={{ borderRight: `1px solid ${headerPalette.borderHex}` }}
                 >
                   {invoice.qtyHeader || 'Qty Order'}
                 </th>
                 <th
                   colSpan={2}
-                  className="border-r border-b border-slate-700 px-2 py-1.5 text-center w-[33mm] text-[11px]"
+                  className="px-2 py-1.5 text-center w-[33mm] text-[11px]"
+                  style={{
+                    borderRight: `1px solid ${headerPalette.borderHex}`,
+                    borderBottom: `1px solid ${headerPalette.borderHex}`,
+                  }}
                 >
                   Berat (Kg)
                 </th>
-                <th className="border-r border-b border-slate-700 px-2.5 py-1.5 text-right w-[26mm] text-[11px]">
+                <th
+                  className="px-2.5 py-1.5 text-right w-[26mm] text-[11px]"
+                  style={{
+                    borderRight: `1px solid ${headerPalette.borderHex}`,
+                    borderBottom: `1px solid ${headerPalette.borderHex}`,
+                  }}
+                >
                   {invoice.priceHeader || 'Harga Satuan'}
                 </th>
                 <th
@@ -188,14 +219,29 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                   Jumlah
                 </th>
               </tr>
-              <tr className="bg-[#273549] text-slate-200 font-medium text-[10px]">
-                <th className="border-r border-slate-700 px-1.5 py-1 text-center w-[16mm]">
+              <tr
+                className="font-medium text-[10px]"
+                style={{
+                  backgroundColor: headerPalette.subHex,
+                  color: headerPalette.subTextHex,
+                }}
+              >
+                <th
+                  className="px-1.5 py-1 text-center w-[16mm]"
+                  style={{ borderRight: `1px solid ${headerPalette.borderHex}` }}
+                >
                   Isi / Unit
                 </th>
-                <th className="border-r border-slate-700 px-1.5 py-1 text-right w-[17mm]">
+                <th
+                  className="px-1.5 py-1 text-right w-[17mm]"
+                  style={{ borderRight: `1px solid ${headerPalette.borderHex}` }}
+                >
                   Total
                 </th>
-                <th className="border-r border-slate-700 px-2.5 py-1 text-right">
+                <th
+                  className="px-2.5 py-1 text-right"
+                  style={{ borderRight: `1px solid ${headerPalette.borderHex}` }}
+                >
                   {invoice.taxLabel || 'Inc PPN'}
                 </th>
               </tr>
@@ -288,7 +334,13 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                   </tr>
                 </>
               )}
-              <tr className="border-t-2 border-slate-800 bg-slate-100 text-slate-900 font-bold">
+              <tr
+                className={
+                  hasDeposit
+                    ? 'border-t border-slate-300 bg-white text-slate-800 font-semibold'
+                    : 'border-t-2 border-slate-800 bg-slate-100 text-slate-900 font-bold'
+                }
+              >
                 <td colSpan={4} className="px-2.5 py-2.5 text-right text-[11px] font-semibold text-slate-600">
                   {!isExcludeAdd ? 'Total Berat' : ''}
                 </td>
@@ -300,13 +352,48 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                 </td>
                 <td className="px-2.5 py-2.5 text-[12px]">
                   <div className="flex items-center justify-between gap-1.5">
-                    <span>{invoice.currency || 'Rp'}</span>
+                    <span className={hasDeposit ? 'text-slate-500 font-normal' : ''}>
+                      {invoice.currency || 'Rp'}
+                    </span>
                     <span className="text-right">
                       {formatAmount(grandTotal, invoice.numberFormat)}
                     </span>
                   </div>
                 </td>
               </tr>
+
+              {hasDeposit && (
+                <>
+                  <tr className="border-t border-slate-200 bg-white text-emerald-700 font-medium">
+                    <td colSpan={5} className="border-r border-slate-200 px-2.5 py-2" />
+                    <td className="border-r border-slate-200 px-2.5 py-2 text-right text-[11.5px]">
+                      {invoice.depositLabel?.trim() || 'Deposit Kelebihan Bayar'}
+                    </td>
+                    <td className="px-2.5 py-2 text-[11.5px]">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span className="font-normal">{invoice.currency || 'Rp'}</span>
+                        <span className="text-right font-semibold">
+                          - {formatAmount(appliedDeposit, invoice.numberFormat)}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                  <tr className="border-t-2 border-slate-800 bg-slate-100 text-slate-900 font-bold">
+                    <td colSpan={5} className="border-r border-slate-300 px-2.5 py-2.5" />
+                    <td className="border-r border-slate-300 px-2.5 py-2.5 text-right text-[12px]">
+                      Sisa Pembayaran
+                    </td>
+                    <td className="px-2.5 py-2.5 text-[12px]">
+                      <div className="flex items-center justify-between gap-1.5">
+                        <span>{invoice.currency || 'Rp'}</span>
+                        <span className="text-right">
+                          {formatAmount(netPayable, invoice.numberFormat)}
+                        </span>
+                      </div>
+                    </td>
+                  </tr>
+                </>
+              )}
             </tfoot>
           </table>
         </div>
@@ -340,7 +427,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
               <span className="flex-1">Nilai Transfer</span>
               <span className="w-8">{invoice.currency || 'Rp'}</span>
               <span className="w-28 text-right">
-                {formatAmount(grandTotal, invoice.numberFormat)}
+                {formatAmount(netPayable, invoice.numberFormat)}
               </span>
             </div>
 

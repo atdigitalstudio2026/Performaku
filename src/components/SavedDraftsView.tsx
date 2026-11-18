@@ -58,7 +58,7 @@ export const SavedDraftsView: React.FC<SavedDraftsViewProps> = ({
         ) : (
           <div className="divide-y divide-slate-200">
             {drafts.map((draft) => {
-              const { grandTotal: total } = calculateInvoiceTotals(draft.data);
+              const { netPayable, appliedDeposit } = calculateInvoiceTotals(draft.data);
               const savedDate = new Date(draft.savedAt).toLocaleString('id-ID', {
                 day: '2-digit',
                 month: 'short',
@@ -77,13 +77,22 @@ export const SavedDraftsView: React.FC<SavedDraftsViewProps> = ({
                       <span>{draft.data.buyerName || 'Tanpa Nama Pembeli'}</span>
                       <span className="text-slate-300">·</span>
                       <span className="font-mono tabular-nums">
-                        {draft.data.currency} {formatAmount(total, draft.data.numberFormat)}
+                        {draft.data.currency} {formatAmount(netPayable, draft.data.numberFormat)}
                       </span>
                     </div>
                     <div className="text-xs text-slate-500 mt-1 flex flex-wrap items-center gap-2">
                       <span>{draft.data.cityDate}</span>
                       <span>·</span>
                       <span>{draft.data.items.length} barang</span>
+                      {appliedDeposit > 0 && (
+                        <>
+                          <span>·</span>
+                          <span className="text-emerald-700 font-medium tabular-nums">
+                            Potong deposit {draft.data.currency}{' '}
+                            {formatAmount(appliedDeposit, draft.data.numberFormat)}
+                          </span>
+                        </>
+                      )}
                       <span>·</span>
                       <span>Rek. {draft.data.bankAccount.bankShortName} {draft.data.bankAccount.accountNumber}</span>
                       <span>·</span>
