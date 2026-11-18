@@ -5,32 +5,37 @@ export interface CompanyLogoPreset {
   companyName: string;
   logoUrl: string;
   recommendedWidthMm: number;
+  defaultBankId: string;
 }
 
 export const COMPANY_LOGO_PRESETS: CompanyLogoPreset[] = [
   {
     id: 'sra',
-    companyName: 'PT. Sumber Roso Agromakmur',
+    companyName: 'PT Sumber Roso Agromakmur',
     logoUrl: '/assets/aistudio/LOGO_SRA_SUMBER_ROSO_AGROMAKMUR-02_3e1a1d18.png',
     recommendedWidthMm: 46,
+    defaultBankId: 'bca-sra',
   },
   {
     id: 'exindo',
     companyName: 'PT Exindokarsa Agung',
     logoUrl: '/assets/aistudio/Exindo_logo_jpg_b93bc77a.jpg',
     recommendedWidthMm: 26,
+    defaultBankId: 'bca-exindo',
   },
   {
     id: 'indo-megah-raya',
     companyName: 'PT Indo Megah Raya',
     logoUrl: '/assets/aistudio/Logo_Indo_Megah_Raya_503dc3d1.png',
     recommendedWidthMm: 54,
+    defaultBankId: 'bca-indo-megah',
   },
   {
     id: 'pelangi-agro',
     companyName: 'PT Pelangi Agro Sejahtera',
     logoUrl: '/assets/aistudio/Logo_Pelangi_Agro_Sejahtera_ec7b5e3e.png',
     recommendedWidthMm: 50,
+    defaultBankId: 'bca-pelangi-agro',
   },
 ];
 
@@ -39,7 +44,7 @@ export const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
   logoWidthMm: COMPANY_LOGO_PRESETS[0].recommendedWidthMm,
   showLetterheadInfo: true,
   showLetterheadDivider: true,
-  name: 'PT. Sumber Roso Agromakmur',
+  name: 'PT Sumber Roso Agromakmur',
   addressLine1: 'Jl.Raya Bekasi Timur No.136',
   addressLine2: 'Jakarta Timur 13410',
   phone: 'Telp.021-8191908',
@@ -56,18 +61,32 @@ export const DEFAULT_DOCUMENT_FOOTER: DocumentFooter = {
 
 export const DEFAULT_BANK_ACCOUNTS: BankAccount[] = [
   {
-    id: 'bca-utama',
+    id: 'bca-sra',
     bankName: 'BANK BCA',
     bankShortName: 'BCA',
-    accountHolder: 'PT.SUMBER ROSO AGROMAKMUR',
+    accountHolder: 'PT Sumber Roso Agromakmur',
     accountNumber: '4967 959 595',
   },
   {
-    id: 'mandiri-ops',
-    bankName: 'BANK MANDIRI',
-    bankShortName: 'Mandiri',
-    accountHolder: 'PT.SUMBER ROSO AGROMAKMUR',
-    accountNumber: '123 00 9876543 2',
+    id: 'bca-exindo',
+    bankName: 'BANK BCA',
+    bankShortName: 'BCA',
+    accountHolder: 'PT Exindokarsa Agung',
+    accountNumber: '4960 496 022',
+  },
+  {
+    id: 'bca-indo-megah',
+    bankName: 'BANK BCA',
+    bankShortName: 'BCA',
+    accountHolder: 'PT Indo Megah Raya',
+    accountNumber: '4966 510 510',
+  },
+  {
+    id: 'bca-pelangi-agro',
+    bankName: 'BANK BCA',
+    bankShortName: 'BCA',
+    accountHolder: 'PT Pelangi Agro Sejahtera',
+    accountNumber: '4963 123 321',
   },
 ];
 
@@ -78,7 +97,7 @@ export const DEFAULT_INVOICE_DATA: ProformaInvoiceData = {
   cityDate: 'Jakarta, 18 November 2026',
   buyerName: 'Ryuu Industry Indonesia',
   buyerAddress: '',
-  priceHeader: 'Harga/kg',
+  priceHeader: 'Harga Satuan',
   taxLabel: 'Inc PPN',
   ppnMode: 'include',
   ppnRate: 11,
@@ -90,9 +109,11 @@ export const DEFAULT_INVOICE_DATA: ProformaInvoiceData = {
     {
       id: 'item-1',
       namaBarang: 'Wijen Hitam Akram 10kg',
-      inner: '10 kg',
+      orderUnit: 'Sak',
+      weightPerUnit: 10,
       harga: 59000,
-      qty: 20,
+      priceBasis: 'per_kg',
+      qty: 2,
     },
   ],
   bankAccount: DEFAULT_BANK_ACCOUNTS[0],

@@ -1,6 +1,11 @@
 import React from 'react';
 import { CompanyProfile, DocumentFooter, ProformaInvoiceData } from '../types/invoice';
-import { calculateInvoiceTotals, formatAmount } from '../utils/formatters';
+import {
+  calculateInvoiceTotals,
+  calculateItemMetrics,
+  formatAmount,
+  formatWeight,
+} from '../utils/formatters';
 
 interface InvoicePreviewProps {
   invoice: ProformaInvoiceData;
@@ -15,7 +20,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
   footer,
   scale = 1,
 }) => {
-  const { subtotal, ppnRate, ppnAmount, grandTotal, isExcludeAdd } =
+  const { subtotal, totalWeightKg, ppnRate, ppnAmount, grandTotal, isExcludeAdd } =
     calculateInvoiceTotals(invoice);
 
   const hasLogo = Boolean(company.logoDataUrl);
@@ -144,48 +149,54 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
           </div>
         </div>
 
-        {/* Tabel Item Profesional */}
+        {/* Tabel Item Fleksibel (Dus/Kg/Bal/Sak + Berat Otomatis) */}
         <div className="mb-7 overflow-hidden rounded-md border border-slate-300">
-          <table className="w-full border-collapse text-[12px] tabular-nums">
+          <table className="w-full border-collapse text-[11.5px] tabular-nums">
             <thead>
               <tr className="bg-[#1E293B] text-white font-semibold">
                 <th
                   rowSpan={2}
-                  className="border-r border-slate-700 px-2.5 py-2 text-center w-[11mm] text-[11.5px]"
+                  className="border-r border-slate-700 px-2 py-2 text-center w-[9mm] text-[11px]"
                 >
                   No
                 </th>
                 <th
                   rowSpan={2}
-                  className="border-r border-slate-700 px-3 py-2 text-left w-[64mm] text-[11.5px]"
+                  className="border-r border-slate-700 px-2.5 py-2 text-left w-[51mm] text-[11px]"
                 >
                   Nama Barang
                 </th>
                 <th
                   rowSpan={2}
-                  className="border-r border-slate-700 px-2.5 py-2 text-center w-[18mm] text-[11.5px]"
+                  className="border-r border-slate-700 px-2 py-2 text-center w-[21mm] text-[11px]"
                 >
-                  Inner
-                </th>
-                <th className="border-r border-b border-slate-700 px-2.5 py-1.5 text-right w-[23mm] text-[11.5px]">
-                  {invoice.priceHeader || 'Harga/kg'}
-                </th>
-                <th className="border-r border-b border-slate-700 px-2.5 py-1.5 text-right w-[18mm] text-[11.5px]">
                   {invoice.qtyHeader || 'Qty Order'}
                 </th>
                 <th
+                  colSpan={2}
+                  className="border-r border-b border-slate-700 px-2 py-1.5 text-center w-[33mm] text-[11px]"
+                >
+                  Berat (Kg)
+                </th>
+                <th className="border-r border-b border-slate-700 px-2.5 py-1.5 text-right w-[26mm] text-[11px]">
+                  {invoice.priceHeader || 'Harga Satuan'}
+                </th>
+                <th
                   rowSpan={2}
-                  className="px-3 py-2 text-right w-[40mm] text-[11.5px]"
+                  className="px-2.5 py-2 text-right w-[34mm] text-[11px]"
                 >
                   Jumlah
                 </th>
               </tr>
-              <tr className="bg-[#273549] text-slate-200 font-medium text-[10.5px]">
-                <th className="border-r border-slate-700 px-2.5 py-1 text-right">
-                  {invoice.taxLabel || 'Inc PPN'}
+              <tr className="bg-[#273549] text-slate-200 font-medium text-[10px]">
+                <th className="border-r border-slate-700 px-1.5 py-1 text-center w-[16mm]">
+                  Isi / Unit
+                </th>
+                <th className="border-r border-slate-700 px-1.5 py-1 text-right w-[17mm]">
+                  Total
                 </th>
                 <th className="border-r border-slate-700 px-2.5 py-1 text-right">
-                  {invoice.qtyUnit || 'Kg'}
+                  {invoice.taxLabel || 'Inc PPN'}
                 </th>
               </tr>
             </thead>
@@ -193,36 +204,45 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
             <tbody className="divide-y divide-slate-200">
               {invoice.items.length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-6 text-center text-slate-400 italic">
+                  <td colSpan={7} className="px-3 py-6 text-center text-slate-400 italic">
                     Belum ada barang ditambahkan
                   </td>
                 </tr>
               ) : (
                 invoice.items.map((item, idx) => {
-                  const lineTotal = (Number(item.harga) || 0) * (Number(item.qty) || 0);
+                  const m = calculateItemMetrics(item);
                   const isEven = idx % 2 === 1;
+                  const isKgOrder = m.orderUnit.toLowerCase() === 'kg';
                   return (
-                    <tr key={item.id} className={isEven ? 'bg-slate-50/80 text-slate-900' : 'bg-white text-slate-900'}>
-                      <td className="border-r border-slate-200 px-2.5 py-2.5 text-center align-top text-slate-600">
+                    <tr
+                      key={item.id}
+                      className={isEven ? 'bg-slate-50/80 text-slate-900' : 'bg-white text-slate-900'}
+                    >
+                      <td className="border-r border-slate-200 px-2 py-2.5 text-center align-top text-slate-600">
                         {idx + 1}
                       </td>
-                      <td className="border-r border-slate-200 px-3 py-2.5 text-left align-top font-medium text-slate-900">
+                      <td className="border-r border-slate-200 px-2.5 py-2.5 text-left align-top font-medium text-slate-900">
                         {item.namaBarang || '-'}
                       </td>
-                      <td className="border-r border-slate-200 px-2.5 py-2.5 text-center align-top text-slate-700">
-                        {item.inner || '-'}
+                      <td className="border-r border-slate-200 px-2 py-2.5 text-center align-top text-slate-800 whitespace-nowrap">
+                        <span className="font-semibold">{formatWeight(Number(item.qty) || 0, invoice.numberFormat)}</span>{' '}
+                        <span className="text-slate-600">{m.orderUnit}</span>
                       </td>
-                      <td className="border-r border-slate-200 px-2.5 py-2.5 text-right align-top text-slate-800">
-                        {formatAmount(item.harga, invoice.numberFormat)}
+                      <td className="border-r border-slate-200 px-1.5 py-2.5 text-center align-top text-slate-700 whitespace-nowrap">
+                        {isKgOrder ? '-' : `${formatWeight(m.weightPerUnit, invoice.numberFormat)} kg`}
                       </td>
-                      <td className="border-r border-slate-200 px-2.5 py-2.5 text-right align-top text-slate-800">
-                        {formatAmount(item.qty, invoice.numberFormat)}
+                      <td className="border-r border-slate-200 px-2 py-2.5 text-right align-top text-slate-800 whitespace-nowrap">
+                        {formatWeight(m.totalWeightKg, invoice.numberFormat)} kg
                       </td>
-                      <td className="px-3 py-2.5 align-top font-medium text-slate-900">
-                        <div className="flex items-center justify-between gap-2">
+                      <td className="border-r border-slate-200 px-2.5 py-2.5 text-right align-top text-slate-800 whitespace-nowrap">
+                        <span>{formatAmount(item.harga, invoice.numberFormat)}</span>{' '}
+                        <span className="text-[10px] text-slate-500">/{m.priceUnitSuffix}</span>
+                      </td>
+                      <td className="px-2.5 py-2.5 align-top font-medium text-slate-900">
+                        <div className="flex items-center justify-between gap-1.5">
                           <span className="text-slate-500 font-normal">{invoice.currency || 'Rp'}</span>
                           <span className="text-right">
-                            {formatAmount(lineTotal, invoice.numberFormat)}
+                            {formatAmount(m.lineTotal, invoice.numberFormat)}
                           </span>
                         </div>
                       </td>
@@ -236,12 +256,15 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
               {isExcludeAdd && (
                 <>
                   <tr className="border-t border-slate-300 bg-white text-slate-700 font-medium">
-                    <td colSpan={3} className="px-3 py-2" />
-                    <td colSpan={2} className="border-r border-slate-200 px-2.5 py-2 text-right text-[11.5px]">
+                    <td colSpan={4} className="px-2.5 py-2" />
+                    <td className="border-r border-slate-200 px-2 py-2 text-right text-[11px] text-slate-600">
+                      {formatWeight(totalWeightKg, invoice.numberFormat)} kg
+                    </td>
+                    <td className="border-r border-slate-200 px-2.5 py-2 text-right text-[11.5px]">
                       Subtotal
                     </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center justify-between gap-2">
+                    <td className="px-2.5 py-2">
+                      <div className="flex items-center justify-between gap-1.5">
                         <span className="text-slate-500 font-normal">{invoice.currency || 'Rp'}</span>
                         <span className="text-right font-semibold text-slate-900">
                           {formatAmount(subtotal, invoice.numberFormat)}
@@ -250,12 +273,12 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                     </td>
                   </tr>
                   <tr className="border-t border-slate-200 bg-white text-slate-700 font-medium">
-                    <td colSpan={3} className="px-3 py-2" />
-                    <td colSpan={2} className="border-r border-slate-200 px-2.5 py-2 text-right text-[11.5px]">
+                    <td colSpan={5} className="border-r border-slate-200 px-2.5 py-2" />
+                    <td className="border-r border-slate-200 px-2.5 py-2 text-right text-[11.5px]">
                       PPN ({ppnRate}%)
                     </td>
-                    <td className="px-3 py-2">
-                      <div className="flex items-center justify-between gap-2">
+                    <td className="px-2.5 py-2">
+                      <div className="flex items-center justify-between gap-1.5">
                         <span className="text-slate-500 font-normal">{invoice.currency || 'Rp'}</span>
                         <span className="text-right font-semibold text-slate-900">
                           {formatAmount(ppnAmount, invoice.numberFormat)}
@@ -266,12 +289,17 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                 </>
               )}
               <tr className="border-t-2 border-slate-800 bg-slate-100 text-slate-900 font-bold">
-                <td colSpan={3} className="px-3 py-2.5" />
-                <td colSpan={2} className="border-r border-slate-300 px-2.5 py-2.5 text-right text-[12.5px]">
+                <td colSpan={4} className="px-2.5 py-2.5 text-right text-[11px] font-semibold text-slate-600">
+                  {!isExcludeAdd ? 'Total Berat' : ''}
+                </td>
+                <td className="border-r border-slate-300 px-2 py-2.5 text-right text-[11.5px] font-semibold text-slate-800 whitespace-nowrap">
+                  {!isExcludeAdd ? `${formatWeight(totalWeightKg, invoice.numberFormat)} kg` : ''}
+                </td>
+                <td className="border-r border-slate-300 px-2.5 py-2.5 text-right text-[12px]">
                   Grand Total
                 </td>
-                <td className="px-3 py-2.5 text-[12.5px]">
-                  <div className="flex items-center justify-between gap-2">
+                <td className="px-2.5 py-2.5 text-[12px]">
+                  <div className="flex items-center justify-between gap-1.5">
                     <span>{invoice.currency || 'Rp'}</span>
                     <span className="text-right">
                       {formatAmount(grandTotal, invoice.numberFormat)}

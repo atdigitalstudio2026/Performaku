@@ -11,16 +11,27 @@ import {
   SlidersHorizontal,
   Trash2,
 } from 'lucide-react';
-import { COMPANY_LOGO_PRESETS, CompanyLogoPreset } from '../data/defaultInvoice';
+import {
+  COMPANY_LOGO_PRESETS,
+  CompanyLogoPreset,
+  DEFAULT_BANK_ACCOUNTS,
+} from '../data/defaultInvoice';
 import {
   BankAccount,
   CompanyProfile,
   DocumentFooter,
   InvoiceItem,
   PpnMode,
+  PriceBasis,
   ProformaInvoiceData,
 } from '../types/invoice';
-import { calculateInvoiceTotals, formatAmount, readFileAsDataUrl } from '../utils/formatters';
+import {
+  calculateInvoiceTotals,
+  calculateItemMetrics,
+  formatAmount,
+  formatWeight,
+  readFileAsDataUrl,
+} from '../utils/formatters';
 
 interface InvoiceEditorProps {
   invoice: ProformaInvoiceData;
@@ -86,8 +97,10 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
     const newItem: InvoiceItem = {
       id: `item-${Date.now()}`,
       namaBarang: '',
-      inner: '10 kg',
+      orderUnit: 'Sak',
+      weightPerUnit: 10,
       harga: 0,
+      priceBasis: 'per_kg',
       qty: 1,
     };
     onChangeInvoice({
@@ -144,7 +157,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
     });
   };
 
-  const { subtotal, ppnRate, ppnAmount, grandTotal, isExcludeAdd } =
+  const { subtotal, totalWeightKg, ppnRate, ppnAmount, grandTotal, isExcludeAdd } =
     calculateInvoiceTotals(invoice);
   const activePpnMode: PpnMode = invoice.ppnMode ?? 'include';
 
@@ -178,14 +191,23 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                 <button
                   key={preset.id}
                   type="button"
-                  onClick={() =>
+                  onClick={() => {
                     onChangeCompany({
                       ...company,
                       logoDataUrl: preset.logoUrl,
                       logoWidthMm: preset.recommendedWidthMm,
                       name: preset.companyName,
-                    })
-                  }
+                    });
+                    const matchedBank =
+                      savedBanks.find((b) => b.id === preset.defaultBankId) ||
+                      DEFAULT_BANK_ACCOUNTS.find((b) => b.id === preset.defaultBankId);
+                    if (matchedBank) {
+                      onChangeInvoice({
+                        ...invoice,
+                        bankAccount: { ...matchedBank },
+                      });
+                    }
+                  }}
                   className={`p-2 rounded-lg border text-left transition-colors cursor-pointer bg-white ${
                     isSelected
                       ? 'border-[#1D4ED8] ring-2 ring-[#1D4ED8]/20'
@@ -207,6 +229,9 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
               );
             })}
           </div>
+          <p className="text-[11px] text-slate-500 mt-1.5">
+            Memilih logo perusahaan akan otomatis menyesuaikan nama penjual dan rekening BCA terkait.
+          </p>
         </div>
 
         {/* Upload Logo Kustom Area */}
@@ -600,19 +625,23 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
 
         <div className="space-y-3">
           {invoice.items.map((item, idx) => {
-            const lineTotal = (Number(item.harga) || 0) * (Number(item.qty) || 0);
+            const m = calculateItemMetrics(item);
+            const isKgOrder = m.orderUnit.toLowerCase() === 'kg';
             return (
               <div
                 key={item.id}
                 className="p-3 rounded-lg border border-slate-200 bg-slate-50/50 space-y-2.5"
               >
                 <div className="flex items-center justify-between gap-2">
-                  <span className="text-xs font-medium text-slate-500 tabular-nums">
-                    Barang #{idx + 1}
+                  <span className="text-xs font-medium text-slate-600 tabular-nums">
+                    Barang #{idx + 1} · Total Berat:{' '}
+                    <span className="font-mono font-semibold text-slate-800">
+                      {formatWeight(m.totalWeightKg, invoice.numberFormat)} kg
+                    </span>
                   </span>
                   <div className="flex items-center gap-3">
                     <span className="text-xs font-semibold text-slate-900 tabular-nums font-mono">
-                      {invoice.currency} {formatAmount(lineTotal, invoice.numberFormat)}
+                      {invoice.currency} {formatAmount(m.lineTotal, invoice.numberFormat)}
                     </span>
                     <button
                       type="button"
@@ -627,7 +656,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                 </div>
 
                 <div className="grid grid-cols-12 gap-2">
-                  <div className="col-span-12 sm:col-span-8">
+                  <div className="col-span-12">
                     <label className="block text-[11px] font-medium text-slate-600 mb-1">
                       Nama Barang
                     </label>
@@ -639,21 +668,73 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                       className="w-full px-2.5 py-1.5 text-sm rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
                     />
                   </div>
-                  <div className="col-span-12 sm:col-span-4">
+
+                  <div className="col-span-4">
                     <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                      Inner / Kemasan
+                      Qty Order
                     </label>
                     <input
-                      type="text"
-                      value={item.inner}
-                      onChange={(e) => updateItem(item.id, { inner: e.target.value })}
-                      placeholder="10 kg"
-                      className="w-full px-2.5 py-1.5 text-sm rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+                      type="number"
+                      min={0}
+                      step="any"
+                      value={item.qty === 0 ? '' : item.qty}
+                      onChange={(e) => updateItem(item.id, { qty: Number(e.target.value) || 0 })}
+                      placeholder="2"
+                      className="w-full px-2.5 py-1.5 text-sm font-mono tabular-nums rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
                     />
                   </div>
+
+                  <div className="col-span-4">
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                      Satuan Order
+                    </label>
+                    <select
+                      value={m.orderUnit}
+                      onChange={(e) => {
+                        const nextUnit = e.target.value;
+                        const nextIsKg = nextUnit.toLowerCase() === 'kg';
+                        updateItem(item.id, {
+                          orderUnit: nextUnit,
+                          weightPerUnit: nextIsKg
+                            ? 1
+                            : m.weightPerUnit <= 1
+                            ? 10
+                            : m.weightPerUnit,
+                          priceBasis: nextIsKg ? 'per_kg' : m.priceBasis,
+                        });
+                      }}
+                      className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+                    >
+                      <option value="Kg">Kg</option>
+                      <option value="Dus">Dus</option>
+                      <option value="Sak">Sak</option>
+                      <option value="Bal">Bal</option>
+                      <option value="Karton">Karton</option>
+                      <option value="Pcs">Pcs</option>
+                    </select>
+                  </div>
+
+                  <div className="col-span-4">
+                    <label className="block text-[11px] font-medium text-slate-600 mb-1">
+                      Berat / {m.orderUnit} (Kg)
+                    </label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="any"
+                      disabled={isKgOrder}
+                      value={isKgOrder ? 1 : item.weightPerUnit === 0 ? '' : item.weightPerUnit}
+                      onChange={(e) =>
+                        updateItem(item.id, { weightPerUnit: Number(e.target.value) || 0 })
+                      }
+                      placeholder="10"
+                      className="w-full px-2.5 py-1.5 text-sm font-mono tabular-nums rounded border border-slate-300 bg-white disabled:bg-slate-100 disabled:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+                    />
+                  </div>
+
                   <div className="col-span-7">
                     <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                      {invoice.priceHeader || 'Harga'} ({invoice.currency})
+                      Harga ({invoice.currency} / {m.priceUnitSuffix})
                     </label>
                     <input
                       type="number"
@@ -664,19 +745,22 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                       className="w-full px-2.5 py-1.5 text-sm font-mono tabular-nums rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
                     />
                   </div>
+
                   <div className="col-span-5">
                     <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                      Qty ({invoice.qtyUnit || 'Kg'})
+                      Basis Harga
                     </label>
-                    <input
-                      type="number"
-                      min={0}
-                      step="any"
-                      value={item.qty === 0 ? '' : item.qty}
-                      onChange={(e) => updateItem(item.id, { qty: Number(e.target.value) || 0 })}
-                      placeholder="20"
-                      className="w-full px-2.5 py-1.5 text-sm font-mono tabular-nums rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
-                    />
+                    <select
+                      value={m.priceBasis}
+                      disabled={isKgOrder}
+                      onChange={(e) =>
+                        updateItem(item.id, { priceBasis: e.target.value as PriceBasis })
+                      }
+                      className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white disabled:bg-slate-100 disabled:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+                    >
+                      <option value="per_kg">Per Kg</option>
+                      {!isKgOrder && <option value="per_unit">Per {m.orderUnit}</option>}
+                    </select>
                   </div>
                 </div>
               </div>
@@ -695,6 +779,9 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
           </button>
 
           <div className="text-right space-y-0.5">
+            <div className="text-[11px] text-slate-500 font-mono tabular-nums">
+              Total Berat: {formatWeight(totalWeightKg, invoice.numberFormat)} kg
+            </div>
             {isExcludeAdd && (
               <>
                 <div className="text-[11px] text-slate-500 font-mono tabular-nums">

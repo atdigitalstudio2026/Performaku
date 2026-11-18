@@ -25,8 +25,8 @@ type MobilePane = 'edit' | 'preview';
 const STORAGE_KEYS = {
   company: 'proformaku_company_v4',
   footer: 'proformaku_footer_v1',
-  invoice: 'proformaku_active_invoice_v1',
-  banks: 'proformaku_saved_banks_v1',
+  invoice: 'proformaku_active_invoice_v2',
+  banks: 'proformaku_saved_banks_v2',
   drafts: 'proformaku_saved_drafts_v1',
 };
 

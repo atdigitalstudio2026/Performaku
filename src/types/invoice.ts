@@ -1,9 +1,14 @@
+export type PriceBasis = 'per_kg' | 'per_unit';
+
 export interface InvoiceItem {
   id: string;
   namaBarang: string;
-  inner: string;
+  orderUnit: string;
+  weightPerUnit: number;
   harga: number;
+  priceBasis: PriceBasis;
   qty: number;
+  inner?: string;
 }
 
 export interface BankAccount {
