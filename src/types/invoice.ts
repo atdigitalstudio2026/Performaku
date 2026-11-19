@@ -100,5 +100,7 @@ export interface InvoiceLogRecord {
   invoiceSnapshot: Omit<ProformaInvoiceData, 'items'>;
   companySnapshot: CompanyProfile;
   footerSnapshot: DocumentFooter;
+  storageSource?: 'firebase' | 'local';
+  localItems?: InvoiceItem[];
 }
 

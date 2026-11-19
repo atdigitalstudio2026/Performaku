@@ -284,6 +284,7 @@ export function subscribeInvoiceLogs(
             phone: '',
             fax: '',
           },
+          storageSource: 'firebase' as const,
         };
       });
 
