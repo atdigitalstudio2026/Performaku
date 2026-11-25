@@ -1,12 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
-import { onAuthStateChanged, User } from 'firebase/auth';
 import {
-  Cloud,
   Download,
   Eye,
   History,
-  LogIn,
-  LogOut,
   PenLine,
   Printer,
   RotateCcw,
@@ -24,22 +20,12 @@ import {
   DEFAULT_INVOICE_DATA,
 } from './data/defaultInvoice';
 import {
-  auth,
-  AuthErrorDetails,
-  parseAuthError,
-  signInWithGoogle,
-  signOutUser,
-} from './firebase';
-import {
   archiveInvoiceLog,
   createInvoiceLog,
   deleteCloudBankAccount,
   deleteInvoiceLog,
   fetchInvoiceLogItems,
-  isAdminUser,
-  loadCloudUserSettings,
   saveCloudBankAccount,
-  saveCloudUserSettings,
   subscribeCloudBankAccounts,
   subscribeInvoiceLogs,
   updateCloudBankAccount,
@@ -55,7 +41,7 @@ import {
   ProformaInvoiceData,
   SavedInvoiceDraft,
 } from './types/invoice';
-import { calculateInvoiceTotals } from './utils/formatters';
+import { calculateInvoiceTotals, formatTodayCityDate } from './utils/formatters';
 import { downloadProformaInvoicePdf } from './utils/generatePdf';
 
 type ActiveTab = 'editor' | 'logs' | 'banks' | 'drafts';
@@ -68,6 +54,7 @@ const STORAGE_KEYS = {
   banks: 'proformaku_saved_banks_v2',
   drafts: 'proformaku_saved_drafts_v1',
   localLogs: 'proformaku_invoice_logs_local_v1',
+  adminName: 'proformaku_admin_name_v1',
 };
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -95,11 +82,10 @@ export default function App() {
   const [isExporting, setIsExporting] = useState(false);
   const [notice, setNotice] = useState<string>('');
 
-  // Firebase Auth & Cloud Log State
-  const [user, setUser] = useState<User | null>(null);
-  const [authReady, setAuthReady] = useState(false);
-  const [isSigningIn, setIsSigningIn] = useState(false);
-  const [authError, setAuthError] = useState<AuthErrorDetails | null>(null);
+  // Shared Firebase Log & Bank State (no login required)
+  const [adminName, setAdminName] = useState<string>(() =>
+    loadFromStorage<string>(STORAGE_KEYS.adminName, '')
+  );
   const [cloudLogs, setCloudLogs] = useState<InvoiceLogRecord[]>([]);
   const [localLogs, setLocalLogs] = useState<InvoiceLogRecord[]>(() =>
     loadFromStorage<InvoiceLogRecord[]>(STORAGE_KEYS.localLogs, []).map((l) => ({
@@ -107,7 +93,7 @@ export default function App() {
       storageSource: 'local' as const,
     }))
   );
-  const [loadingLogs, setLoadingLogs] = useState(false);
+  const [loadingLogs, setLoadingLogs] = useState(true);
   const [logsError, setLogsError] = useState('');
   const [cloudBanks, setCloudBanks] = useState<BankAccount[]>([]);
 
@@ -125,10 +111,16 @@ export default function App() {
     ...DEFAULT_DOCUMENT_FOOTER,
     ...loadFromStorage(STORAGE_KEYS.footer, DEFAULT_DOCUMENT_FOOTER),
   }));
-  const [invoice, setInvoice] = useState<ProformaInvoiceData>(() => ({
-    ...DEFAULT_INVOICE_DATA,
-    ...loadFromStorage(STORAGE_KEYS.invoice, DEFAULT_INVOICE_DATA),
-  }));
+  const [invoice, setInvoice] = useState<ProformaInvoiceData>(() => {
+    const loaded = {
+      ...DEFAULT_INVOICE_DATA,
+      ...loadFromStorage(STORAGE_KEYS.invoice, DEFAULT_INVOICE_DATA),
+    };
+    return {
+      ...loaded,
+      cityDate: formatTodayCityDate(loaded.cityDate),
+    };
+  });
   const [localBanks, setLocalBanks] = useState<BankAccount[]>(() =>
     loadFromStorage(STORAGE_KEYS.banks, DEFAULT_BANK_ACCOUNTS)
   );
@@ -136,7 +128,16 @@ export default function App() {
     loadFromStorage(STORAGE_KEYS.drafts, [])
   );
 
-  const cloudSettingsLoadedRef = useRef(false);
+  const autoMigratedRef = useRef(false);
+
+  // Persist local editor state & admin label
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.adminName, JSON.stringify(adminName));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [adminName]);
 
   useEffect(() => {
     try {
@@ -146,7 +147,6 @@ export default function App() {
     }
   }, [localLogs]);
 
-  // Persist locally
   useEffect(() => {
     try {
       localStorage.setItem(STORAGE_KEYS.company, JSON.stringify(company));
@@ -187,97 +187,72 @@ export default function App() {
     }
   }, [savedDrafts]);
 
-  // Firebase Auth listener & real-time Firestore subscriptions
+  // Direct real-time Firestore subscriptions for unified shared team data
   useEffect(() => {
-    let unsubLogs: (() => void) | null = null;
-    let unsubBanks: (() => void) | null = null;
+    setLoadingLogs(true);
+    setLogsError('');
 
-    const unsubAuth = onAuthStateChanged(auth, async (nextUser) => {
-      setUser(nextUser);
-      setAuthReady(true);
-
-      if (unsubLogs) {
-        unsubLogs();
-        unsubLogs = null;
-      }
-      if (unsubBanks) {
-        unsubBanks();
-        unsubBanks = null;
-      }
-
-      if (!nextUser) {
-        setCloudLogs([]);
-        setCloudBanks([]);
+    const unsubLogs = subscribeInvoiceLogs(
+      (records) => {
+        setCloudLogs(records);
         setLogsError('');
         setLoadingLogs(false);
-        cloudSettingsLoadedRef.current = false;
-        return;
+      },
+      (err) => {
+        setLogsError(err.message || 'Gagal memuat log bersama dari Firebase.');
+        setLoadingLogs(false);
       }
+    );
 
-      setAuthError(null);
-      setLoadingLogs(true);
-      setLogsError('');
-
-      unsubLogs = subscribeInvoiceLogs(
-        nextUser,
-        (records) => {
-          setCloudLogs(records);
-          setLoadingLogs(false);
-        },
-        (err) => {
-          setLogsError(err.message || 'Gagal memuat log dari Firebase.');
-          setLoadingLogs(false);
-        }
-      );
-
-      unsubBanks = subscribeCloudBankAccounts(
-        nextUser,
-        (banks) => {
-          setCloudBanks(banks);
-        },
-        () => {
-          // Non-fatal fallback to local banks
-        }
-      );
-
-      try {
-        const cloudSettings = await loadCloudUserSettings(nextUser);
-        if (cloudSettings?.company) {
-          setCompany((prev) => ({
-            ...prev,
-            ...cloudSettings.company,
-            logoDataUrl: normalizeLogoUrl(
-              cloudSettings.company?.logoDataUrl || prev.logoDataUrl
-            ),
-          }));
-        }
-        if (cloudSettings?.footer) {
-          setFooter((prev) => ({ ...prev, ...cloudSettings.footer }));
-        }
-      } catch {
-        // Keep local settings if cloud preference fails
-      } finally {
-        cloudSettingsLoadedRef.current = true;
+    const unsubBanks = subscribeCloudBankAccounts(
+      (banks) => {
+        setCloudBanks(banks);
+      },
+      () => {
+        // Non-fatal fallback to local banks
       }
-    });
+    );
 
     return () => {
-      unsubAuth();
-      if (unsubLogs) unsubLogs();
-      if (unsubBanks) unsubBanks();
+      unsubLogs();
+      unsubBanks();
     };
   }, []);
 
-  // Debounced sync of company & footer preferences to Firestore
+  // Automatically upload any legacy/offline local logs into the unified Firebase database
   useEffect(() => {
-    if (!user || !user.emailVerified || !cloudSettingsLoadedRef.current) return;
-    const timer = setTimeout(() => {
-      void saveCloudUserSettings(user, company, footer).catch(() => {
-        // Silent background preference sync
-      });
-    }, 1500);
-    return () => clearTimeout(timer);
-  }, [user, company, footer]);
+    if (autoMigratedRef.current || loadingLogs || logsError || localLogs.length === 0) return;
+    autoMigratedRef.current = true;
+
+    const migrate = async () => {
+      const remaining: InvoiceLogRecord[] = [];
+      let migrated = 0;
+      for (const log of localLogs) {
+        try {
+          const fullInvoice: ProformaInvoiceData = {
+            ...DEFAULT_INVOICE_DATA,
+            ...log.invoiceSnapshot,
+            items: log.localItems || [],
+          };
+          await createInvoiceLog(
+            log.ownerName || adminName || 'Tim Admin',
+            fullInvoice,
+            log.companySnapshot,
+            log.footerSnapshot,
+            log.actionType
+          );
+          migrated += 1;
+        } catch {
+          remaining.push(log);
+        }
+      }
+      if (migrated > 0) {
+        setLocalLogs(remaining);
+      }
+    };
+
+    void migrate();
+  }, [loadingLogs, logsError, localLogs, adminName]);
 
   const savedBanks: BankAccount[] = (() => {
     const merged = [...localBanks];
@@ -309,9 +284,9 @@ export default function App() {
     ) as ProformaInvoiceData;
     return {
       id: `local_log_${now}_${Math.random().toString(36).slice(2, 6)}`,
-      ownerId: 'local',
+      ownerId: 'shared_team',
       ownerEmail: '',
-      ownerName: 'Admin Lokal',
+      ownerName: adminName.trim() || 'Tim Admin',
       actionType,
       status: 'active',
       createdAtMs: now,
@@ -333,53 +308,27 @@ export default function App() {
     };
   };
 
-  const recordLogHybrid = async (
+  const recordLogShared = async (
     actionType: InvoiceLogAction
   ): Promise<'firebase' | 'local'> => {
-    if (user && user.emailVerified) {
-      try {
-        await createInvoiceLog(user, invoice, company, footer, actionType);
-        return 'firebase';
-      } catch {
-        // Fallback ke penyimpanan lokal agar riwayat tidak pernah hilang
-      }
-    }
-    const localEntry = buildLocalLogEntry(actionType);
-    setLocalLogs((prev) => [localEntry, ...prev].slice(0, 150));
-    return 'local';
-  };
-
-  const handleSignIn = async () => {
-    if (isSigningIn) return;
-    setIsSigningIn(true);
-    setAuthError(null);
     try {
-      const cred = await signInWithGoogle();
-      setAuthError(null);
-      showNotice(`Terhubung ke Firebase sebagai ${cred.user.email || 'Admin'}.`);
-    } catch (error) {
-      console.error('Firebase Google Sign-In Error:', error);
-      const parsed = parseAuthError(error);
-      setAuthError(parsed);
-      setActiveTab('logs');
-      showNotice(`${parsed.title} (${parsed.code})`);
-    } finally {
-      setIsSigningIn(false);
-    }
-  };
-
-  const handleSignOut = async () => {
-    try {
-      await signOutUser();
-      setAuthError(null);
-      showNotice('Keluar dari akun Firebase.');
+      await createInvoiceLog(
+        adminName.trim() || 'Tim Admin',
+        invoice,
+        company,
+        footer,
+        actionType
+      );
+      return 'firebase';
     } catch {
-      showNotice('Gagal keluar dari akun.');
+      const localEntry = buildLocalLogEntry(actionType);
+      setLocalLogs((prev) => [localEntry, ...prev].slice(0, 150));
+      return 'local';
     }
   };
 
   const handleSyncLocalLogsToFirebase = async () => {
-    if (!user || !user.emailVerified || localLogs.length === 0) return;
+    if (localLogs.length === 0) return;
     let syncedCount = 0;
     const remaining: InvoiceLogRecord[] = [];
     for (const log of localLogs) {
@@ -390,7 +339,7 @@ export default function App() {
           items: log.localItems || [],
         };
         await createInvoiceLog(
-          user,
+          log.ownerName || adminName.trim() || 'Tim Admin',
           fullInvoice,
           log.companySnapshot,
           log.footerSnapshot,
@@ -403,9 +352,9 @@ export default function App() {
     }
     setLocalLogs(remaining);
     if (syncedCount > 0) {
-      showNotice(`${syncedCount} log lokal berhasil disinkronkan ke Firebase.`);
+      showNotice(`${syncedCount} log berhasil disinkronkan ke database bersama Firebase.`);
     } else {
-      showNotice('Gagal menyinkronkan log lokal ke Firebase.');
+      showNotice('Gagal mengunggah log ke Firebase. Periksa koneksi internet.');
     }
   };
 
@@ -414,11 +363,11 @@ export default function App() {
     setIsExporting(true);
     try {
       const filename = await downloadProformaInvoicePdf(invoice, company, footer);
-      const savedTo = await recordLogHybrid('pdf_export');
+      const savedTo = await recordLogShared('pdf_export');
       showNotice(
         savedTo === 'firebase'
-          ? `PDF diunduh & tercatat ke Log Firebase: ${filename}`
-          : `PDF diunduh & tercatat ke Log Lokal: ${filename}`
+          ? `PDF diunduh & tercatat ke Log Bersama Firebase: ${filename}`
+          : `PDF diunduh & disimpan sementara di browser: ${filename}`
       );
     } catch {
       showNotice('Gagal membuat PDF. Periksa kembali logo atau data invoice.');
@@ -429,15 +378,15 @@ export default function App() {
 
   const handlePrint = async () => {
     window.print();
-    await recordLogHybrid('print');
+    await recordLogShared('print');
   };
 
   const handleSaveToCloudLog = async () => {
-    const savedTo = await recordLogHybrid('manual_save');
+    const savedTo = await recordLogShared('manual_save');
     showNotice(
       savedTo === 'firebase'
-        ? 'Proforma Invoice berhasil dicatat ke Log Firebase.'
-        : 'Proforma Invoice berhasil dicatat ke Log Invoice (Lokal Browser).'
+        ? 'Proforma Invoice berhasil dicatat ke Log Bersama Firebase.'
+        : 'Koneksi sedang terganggu; invoice disimpan sementara di browser.'
     );
   };
 
@@ -452,7 +401,10 @@ export default function App() {
   };
 
   const handleResetExample = () => {
-    setInvoice(DEFAULT_INVOICE_DATA);
+    setInvoice({
+      ...DEFAULT_INVOICE_DATA,
+      cityDate: formatTodayCityDate(),
+    });
     setCompany((prev) => ({
       ...DEFAULT_COMPANY_PROFILE,
       logoDataUrl: prev.logoDataUrl || DEFAULT_COMPANY_PROFILE.logoDataUrl,
@@ -471,26 +423,26 @@ export default function App() {
       if (exists) return prev;
       return [...prev, bank];
     });
-    if (user && user.emailVerified) {
-      void saveCloudBankAccount(user, bank).catch(() => {});
-    }
-    showNotice(`Rekening ${bank.bankShortName} ditambahkan ke daftar.`);
+    void saveCloudBankAccount(bank).catch(() => {});
+    showNotice(`Rekening ${bank.bankShortName} ditambahkan ke daftar bersama.`);
   };
 
   const handleUpdateBank = (updated: BankAccount) => {
     setLocalBanks((prev) => prev.map((b) => (b.id === updated.id ? updated : b)));
-    if (user && user.emailVerified && cloudBanks.some((b) => b.id === updated.id)) {
+    if (cloudBanks.some((b) => b.id === updated.id)) {
       void updateCloudBankAccount(updated).catch(() => {});
+    } else {
+      void saveCloudBankAccount(updated).catch(() => {});
     }
     if (invoice.bankAccount.id === updated.id) {
       setInvoice((prev) => ({ ...prev, bankAccount: updated }));
     }
-    showNotice('Data rekening diperbarui.');
+    showNotice('Data rekening bersama diperbarui.');
   };
 
   const handleDeleteBank = (id: string) => {
     setLocalBanks((prev) => prev.filter((b) => b.id !== id));
-    if (user && user.emailVerified && cloudBanks.some((b) => b.id === id)) {
+    if (cloudBanks.some((b) => b.id === id)) {
       void deleteCloudBankAccount(id).catch(() => {});
     }
     showNotice('Rekening dihapus dari daftar.');
@@ -567,37 +519,6 @@ export default function App() {
         </nav>
 
         <div className="flex items-center gap-2 shrink-0">
-          {authReady && (
-            user ? (
-              <div className="hidden md:flex items-center gap-2 pr-2 border-r border-slate-200">
-                <Cloud className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                <span className="text-xs text-slate-700 max-w-[140px] truncate">
-                  {user.email}
-                </span>
-                <button
-                  type="button"
-                  onClick={handleSignOut}
-                  title="Keluar akun Firebase"
-                  className="p-1.5 text-slate-500 hover:text-slate-900 rounded hover:bg-slate-100 transition-colors cursor-pointer"
-                >
-                  <LogOut className="w-3.5 h-3.5" />
-                </button>
-              </div>
-            ) : (
-              <button
-                type="button"
-                onClick={handleSignIn}
-                disabled={isSigningIn}
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-60 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                <span className="hidden sm:inline">
-                  {isSigningIn ? 'Membuka...' : 'Masuk Firebase'}
-                </span>
-              </button>
-            )
-          )}
-
           <button
             type="button"
             onClick={handleDownloadPdf}
@@ -747,24 +668,19 @@ export default function App() {
       {activeTab === 'logs' && (
         <main className="flex-1">
           <InvoiceLogsView
-            user={user}
-            authReady={authReady}
-            isSigningIn={isSigningIn}
-            authError={authError}
+            adminName={adminName}
+            onChangeAdminName={setAdminName}
             logs={combinedLogs}
             localOnlyCount={localLogs.length}
             loadingLogs={loadingLogs}
             logsError={logsError}
-            isAdmin={isAdminUser(user)}
-            onSignIn={handleSignIn}
             onSyncLocalLogs={handleSyncLocalLogsToFirebase}
             onSaveCurrentToLog={handleSaveToCloudLog}
             onFetchLogItems={async (log) => {
               if (log.storageSource === 'local') {
                 return log.localItems || [];
               }
-              if (!user) return [];
-              return fetchInvoiceLogItems(user, log.id);
+              return fetchInvoiceLogItems(log.id);
             }}
             onLoadLogToEditor={(restoredInvoice, restoredCompany, restoredFooter) => {
               setInvoice({ ...DEFAULT_INVOICE_DATA, ...restoredInvoice });
@@ -796,11 +712,11 @@ export default function App() {
                       : item
                   )
                 );
-              } else {
+              } else if (log.status !== 'archived') {
                 try {
                   await updateInvoiceLogAction(log.id, 'pdf_export');
                 } catch {
-                  // Non-fatal if user is viewing read-only
+                  // Non-fatal
                 }
               }
               showNotice(`PDF diunduh dari log: ${filename}`);
@@ -825,9 +741,8 @@ export default function App() {
                 showNotice('Log lokal dihapus permanen.');
                 return;
               }
-              if (!user) return;
-              await deleteInvoiceLog(user, log.id);
-              showNotice('Log dihapus permanen dari Firebase.');
+              await deleteInvoiceLog(log.id);
+              showNotice('Log dihapus permanen dari database bersama Firebase.');
             }}
           />
         </main>

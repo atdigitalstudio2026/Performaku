@@ -1,4 +1,5 @@
 import { BankAccount, CompanyProfile, DocumentFooter, ProformaInvoiceData } from '../types/invoice';
+import { formatTodayCityDate } from '../utils/formatters';
 
 export interface CompanyLogoPreset {
   id: string;
@@ -103,7 +104,7 @@ export const DEFAULT_INVOICE_DATA: ProformaInvoiceData = {
   title: 'PROFORMA INVOICE',
   invoiceNumber: 'PI/SRA/2026/11/001',
   showInvoiceNumber: false,
-  cityDate: 'Jakarta, 18 November 2026',
+  cityDate: formatTodayCityDate('Jakarta'),
   buyerName: 'Ryuu Industry Indonesia',
   buyerAddress: '',
   priceHeader: 'Harga Satuan',

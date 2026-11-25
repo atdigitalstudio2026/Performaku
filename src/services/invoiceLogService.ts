@@ -1,12 +1,9 @@
-import { User } from 'firebase/auth';
 import {
   collection,
   doc,
-  getDoc,
   getDocs,
   limit,
   onSnapshot,
-  orderBy,
   query,
   serverTimestamp,
   setDoc,
@@ -31,15 +28,7 @@ import {
 } from '../types/invoice';
 import { calculateInvoiceTotals } from '../utils/formatters';
 
-export const BOOTSTRAPPED_ADMIN_EMAIL = 'acu.andi80@gmail.com';
-
-export function isAdminUser(user: User | null): boolean {
-  return Boolean(
-    user &&
-      user.email?.toLowerCase() === BOOTSTRAPPED_ADMIN_EMAIL &&
-      user.emailVerified
-  );
-}
+export const SHARED_TEAM_OWNER_ID = 'shared_team';
 
 function safeStr(value: unknown, maxLen: number, fallback = ''): string {
   const str = typeof value === 'string' ? value : fallback;
@@ -94,14 +83,19 @@ function timestampToMs(ts: unknown): number {
   if (ts instanceof Timestamp) {
     return ts.toMillis();
   }
-  if (ts && typeof ts === 'object' && 'toMillis' in ts && typeof (ts as { toMillis: unknown }).toMillis === 'function') {
+  if (
+    ts &&
+    typeof ts === 'object' &&
+    'toMillis' in ts &&
+    typeof (ts as { toMillis: unknown }).toMillis === 'function'
+  ) {
     return (ts as { toMillis: () => number }).toMillis();
   }
   return Date.now();
 }
 
 export async function createInvoiceLog(
-  user: User,
+  adminName: string,
   invoice: ProformaInvoiceData,
   company: CompanyProfile,
   footer: DocumentFooter,
@@ -124,18 +118,21 @@ export async function createInvoiceLog(
   const sanitizedCompany = sanitizeCompanyMap(company);
   const sanitizedFooter = sanitizeFooterMap(footer);
   const sanitizedBank = sanitizeBankMap(invoice.bankAccount);
+  const cleanedAdminName = safeStr(adminName.trim() || 'Tim Admin', 120, 'Tim Admin');
 
   try {
     const batch = writeBatch(db);
     const logRef = doc(db, 'invoiceLogs', logId);
 
     batch.set(logRef, {
-      ownerId: user.uid.slice(0, 128),
-      ownerEmail: safeStr(user.email, 200),
-      ownerName: safeStr(user.displayName || user.email || 'Admin', 120),
+      ownerId: SHARED_TEAM_OWNER_ID,
+      ownerEmail: '',
+      ownerName: cleanedAdminName,
       actionType,
       status: 'active',
-      title: safeStr(invoice.title || 'PROFORMA INVOICE', 100, 'PROFORMA INVOICE') || 'PROFORMA INVOICE',
+      title:
+        safeStr(invoice.title || 'PROFORMA INVOICE', 100, 'PROFORMA INVOICE') ||
+        'PROFORMA INVOICE',
       cityDate: safeStr(invoice.cityDate, 100),
       invoiceNumber: safeStr(invoice.invoiceNumber, 80),
       showInvoiceNumber: Boolean(invoice.showInvoiceNumber),
@@ -180,7 +177,7 @@ export async function createInvoiceLog(
       const safeOrderUnit = safeStr(item.orderUnit || 'Kg', 30, 'Kg') || 'Kg';
       const safeBasis: PriceBasis = item.priceBasis === 'per_unit' ? 'per_unit' : 'per_kg';
       batch.set(itemRef, {
-        ownerId: user.uid.slice(0, 128),
+        ownerId: SHARED_TEAM_OWNER_ID,
         logId,
         orderIndex: idx,
         namaBarang: safeStr(item.namaBarang, 200),
@@ -201,14 +198,14 @@ export async function createInvoiceLog(
 }
 
 export function subscribeInvoiceLogs(
-  user: User,
   onData: (logs: InvoiceLogRecord[]) => void,
   onError: (err: Error) => void
 ): Unsubscribe {
-  const admin = isAdminUser(user);
-  const logsQuery = admin
-    ? query(collection(db, 'invoiceLogs'), orderBy('createdAt', 'desc'), limit(100))
-    : query(collection(db, 'invoiceLogs'), where('ownerId', '==', user.uid), limit(100));
+  const logsQuery = query(
+    collection(db, 'invoiceLogs'),
+    where('ownerId', '==', SHARED_TEAM_OWNER_ID),
+    limit(500)
+  );
 
   return onSnapshot(
     logsQuery,
@@ -217,9 +214,9 @@ export function subscribeInvoiceLogs(
         const d = docSnap.data();
         return {
           id: docSnap.id,
-          ownerId: String(d.ownerId || ''),
+          ownerId: String(d.ownerId || SHARED_TEAM_OWNER_ID),
           ownerEmail: String(d.ownerEmail || ''),
-          ownerName: String(d.ownerName || ''),
+          ownerName: String(d.ownerName || 'Tim Admin'),
           actionType: (d.actionType as InvoiceLogAction) || 'manual_save',
           status: (d.status as InvoiceLogStatus) || 'active',
           createdAtMs: timestampToMs(d.createdAt),
@@ -227,32 +224,32 @@ export function subscribeInvoiceLogs(
           itemCount: Number(d.itemCount) || 0,
           totalWeightKg: Number(d.totalWeightKg) || 0,
           subtotal: Number(d.subtotal) || 0,
-            ppnAmount: Number(d.ppnAmount) || 0,
+          ppnAmount: Number(d.ppnAmount) || 0,
+          shippingCost: Number(d.shippingCost) || 0,
+          grandTotal: Number(d.grandTotal) || 0,
+          appliedDeposit: Number(d.appliedDeposit) || 0,
+          netPayable: Number(d.netPayable) || 0,
+          sellerName: String(d.sellerName || ''),
+          invoiceSnapshot: {
+            title: String(d.title || 'PROFORMA INVOICE'),
+            invoiceNumber: String(d.invoiceNumber || ''),
+            showInvoiceNumber: Boolean(d.showInvoiceNumber),
+            cityDate: String(d.cityDate || ''),
+            buyerName: String(d.buyerName || ''),
+            buyerAddress: String(d.buyerAddress || ''),
+            priceHeader: String(d.priceHeader || 'Harga Satuan'),
+            taxLabel: String(d.taxLabel || 'Inc PPN'),
+            ppnMode: (d.ppnMode as PpnMode) || 'include',
+            ppnRate: Number(d.ppnRate ?? 11),
+            qtyHeader: String(d.qtyHeader || 'Qty Order'),
+            qtyUnit: String(d.qtyUnit || 'Dus'),
+            currency: String(d.currency || 'Rp'),
+            numberFormat: d.numberFormat === 'dot' ? 'dot' : 'comma',
+            tableHeaderColor: String(d.tableHeaderColor || '#1E293B'),
             shippingCost: Number(d.shippingCost) || 0,
-            grandTotal: Number(d.grandTotal) || 0,
-            appliedDeposit: Number(d.appliedDeposit) || 0,
-            netPayable: Number(d.netPayable) || 0,
-            sellerName: String(d.sellerName || ''),
-            invoiceSnapshot: {
-              title: String(d.title || 'PROFORMA INVOICE'),
-              invoiceNumber: String(d.invoiceNumber || ''),
-              showInvoiceNumber: Boolean(d.showInvoiceNumber),
-              cityDate: String(d.cityDate || ''),
-              buyerName: String(d.buyerName || ''),
-              buyerAddress: String(d.buyerAddress || ''),
-              priceHeader: String(d.priceHeader || 'Harga Satuan'),
-              taxLabel: String(d.taxLabel || 'Inc PPN'),
-              ppnMode: (d.ppnMode as PpnMode) || 'include',
-              ppnRate: Number(d.ppnRate ?? 11),
-              qtyHeader: String(d.qtyHeader || 'Qty Order'),
-              qtyUnit: String(d.qtyUnit || 'Dus'),
-              currency: String(d.currency || 'Rp'),
-              numberFormat: d.numberFormat === 'dot' ? 'dot' : 'comma',
-              tableHeaderColor: String(d.tableHeaderColor || '#1E293B'),
-              shippingCost: Number(d.shippingCost) || 0,
-              shippingLabel: String(d.shippingLabel || 'Biaya Ongkir'),
-              depositAmount: Number(d.depositAmount) || 0,
-              depositLabel: String(d.depositLabel || 'Deposit Kelebihan Bayar'),
+            shippingLabel: String(d.shippingLabel || 'Biaya Ongkir'),
+            depositAmount: Number(d.depositAmount) || 0,
+            depositLabel: String(d.depositLabel || 'Deposit Kelebihan Bayar'),
             bankAccount: (d.bankAccount as BankAccount) || {
               id: 'bank-bca',
               bankName: 'BANK BCA',
@@ -301,13 +298,13 @@ export function subscribeInvoiceLogs(
   );
 }
 
-export async function fetchInvoiceLogItems(user: User, logId: string): Promise<InvoiceItem[]> {
+export async function fetchInvoiceLogItems(logId: string): Promise<InvoiceItem[]> {
   const path = `invoiceLogs/${logId}/items`;
   try {
-    const admin = isAdminUser(user);
-    const itemsQuery = admin
-      ? query(collection(db, 'invoiceLogs', logId, 'items'), orderBy('orderIndex', 'asc'))
-      : query(collection(db, 'invoiceLogs', logId, 'items'), where('ownerId', '==', user.uid));
+    const itemsQuery = query(
+      collection(db, 'invoiceLogs', logId, 'items'),
+      where('ownerId', '==', SHARED_TEAM_OWNER_ID)
+    );
 
     const snap = await getDocs(itemsQuery);
     const rows = snap.docs
@@ -362,13 +359,13 @@ export async function archiveInvoiceLog(logId: string): Promise<void> {
   }
 }
 
-export async function deleteInvoiceLog(user: User, logId: string): Promise<void> {
+export async function deleteInvoiceLog(logId: string): Promise<void> {
   const path = `invoiceLogs/${logId}`;
   try {
-    const admin = isAdminUser(user);
-    const itemsQuery = admin
-      ? query(collection(db, 'invoiceLogs', logId, 'items'))
-      : query(collection(db, 'invoiceLogs', logId, 'items'), where('ownerId', '==', user.uid));
+    const itemsQuery = query(
+      collection(db, 'invoiceLogs', logId, 'items'),
+      where('ownerId', '==', SHARED_TEAM_OWNER_ID)
+    );
 
     const itemsSnap = await getDocs(itemsQuery);
     const batch = writeBatch(db);
@@ -381,16 +378,15 @@ export async function deleteInvoiceLog(user: User, logId: string): Promise<void>
 }
 
 // =========================================================================
-// Cloud Bank Accounts Sync
+// Shared Team Bank Accounts Sync
 // =========================================================================
 export function subscribeCloudBankAccounts(
-  user: User,
   onData: (banks: BankAccount[]) => void,
   onError: (err: Error) => void
 ): Unsubscribe {
   const banksQuery = query(
     collection(db, 'bankAccounts'),
-    where('ownerId', '==', user.uid),
+    where('ownerId', '==', SHARED_TEAM_OWNER_ID),
     limit(100)
   );
 
@@ -419,14 +415,14 @@ export function subscribeCloudBankAccounts(
   );
 }
 
-export async function saveCloudBankAccount(user: User, bank: BankAccount): Promise<string> {
+export async function saveCloudBankAccount(bank: BankAccount): Promise<string> {
   const safeId = /^[a-zA-Z0-9_-]{1,128}$/.test(bank.id)
     ? bank.id
     : `bank_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
   const path = `bankAccounts/${safeId}`;
   try {
     await setDoc(doc(db, 'bankAccounts', safeId), {
-      ownerId: user.uid.slice(0, 128),
+      ownerId: SHARED_TEAM_OWNER_ID,
       bankName: safeStr(bank.bankName || 'BANK', 80, 'BANK') || 'BANK',
       bankShortName: safeStr(bank.bankShortName || 'BANK', 40, 'BANK') || 'BANK',
       accountHolder: safeStr(bank.accountHolder || '-', 150, '-') || '-',
@@ -463,43 +459,5 @@ export async function deleteCloudBankAccount(bankId: string): Promise<void> {
     await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
-  }
-}
-
-// =========================================================================
-// Cloud User Settings (Company & Footer)
-// =========================================================================
-export async function loadCloudUserSettings(
-  user: User
-): Promise<{ company?: CompanyProfile; footer?: DocumentFooter } | null> {
-  const path = `userSettings/${user.uid}`;
-  try {
-    const snap = await getDoc(doc(db, 'userSettings', user.uid));
-    if (!snap.exists()) return null;
-    const d = snap.data();
-    return {
-      company: d.company as CompanyProfile | undefined,
-      footer: d.footer as DocumentFooter | undefined,
-    };
-  } catch (error) {
-    handleFirestoreError(error, OperationType.GET, path);
-  }
-}
-
-export async function saveCloudUserSettings(
-  user: User,
-  company: CompanyProfile,
-  footer: DocumentFooter
-): Promise<void> {
-  const path = `userSettings/${user.uid}`;
-  try {
-    await setDoc(doc(db, 'userSettings', user.uid), {
-      ownerId: user.uid.slice(0, 128),
-      company: sanitizeCompanyMap(company),
-      footer: sanitizeFooterMap(footer),
-      updatedAt: serverTimestamp(),
-    });
-  } catch (error) {
-    handleFirestoreError(error, OperationType.WRITE, path);
   }
 }

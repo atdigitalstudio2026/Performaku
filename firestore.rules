@@ -7,7 +7,7 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // Global Hardened Primitives
+    // Global Hardened Primitives (Shared Team Workspace — No Login Required)
     // =========================================================================
     function isValidId(id) {
       return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
@@ -21,22 +21,8 @@ service cloud.firestore {
       return resource.data;
     }
 
-    function isSignedIn() {
-      return request.auth != null;
-    }
-
-    function isVerifiedUser() {
-      return isSignedIn() && request.auth.token.email_verified == true;
-    }
-
-    function isBootstrappedAdmin() {
-      return isVerifiedUser() && request.auth.token.email == 'acu.andi80@gmail.com';
-    }
-
-    function isAdmin() {
-      return isBootstrappedAdmin() || (
-        isVerifiedUser() && exists(/databases/$(database)/documents/admins/$(request.auth.uid))
-      );
+    function isSharedTeamOwner(ownerId) {
+      return ownerId is string && ownerId == 'shared_team';
     }
 
     // =========================================================================
@@ -111,7 +97,7 @@ service cloud.firestore {
           'appliedDeposit', 'netPayable', 'bankAccount', 'companySnapshot',
           'footerSnapshot', 'createdAt', 'updatedAt'
         ])
-        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && isSharedTeamOwner(data.ownerId)
         && data.ownerEmail is string && data.ownerEmail.size() <= 200
         && data.ownerName is string && data.ownerName.size() <= 120
         && data.actionType is string && data.actionType in ['manual_save', 'pdf_export', 'print', 'restored']
@@ -165,7 +151,7 @@ service cloud.firestore {
           'ownerId', 'logId', 'orderIndex', 'namaBarang',
           'orderUnit', 'weightPerUnit', 'harga', 'priceBasis', 'qty', 'createdAt'
         ])
-        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && isSharedTeamOwner(data.ownerId)
         && data.logId is string && data.logId == logId
         && data.orderIndex is int && data.orderIndex >= 0 && data.orderIndex <= 500
         && data.namaBarang is string && data.namaBarang.size() <= 200
@@ -186,7 +172,7 @@ service cloud.firestore {
           'ownerId', 'bankName', 'bankShortName', 'accountHolder',
           'accountNumber', 'createdAt', 'updatedAt'
         ])
-        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
+        && isSharedTeamOwner(data.ownerId)
         && data.bankName is string && data.bankName.size() >= 1 && data.bankName.size() <= 80
         && data.bankShortName is string && data.bankShortName.size() >= 1 && data.bankShortName.size() <= 40
         && data.accountHolder is string && data.accountHolder.size() >= 1 && data.accountHolder.size() <= 150
@@ -195,155 +181,82 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
-    function isValidUserPreference(data) {
-      return data.keys().hasAll(['ownerId', 'company', 'footer', 'updatedAt'])
-        && data.keys().hasOnly(['ownerId', 'company', 'footer', 'updatedAt'])
-        && data.ownerId is string && data.ownerId.size() >= 1 && data.ownerId.size() <= 128
-        && isValidCompanyMap(data.company)
-        && isValidFooterMap(data.footer)
-        && data.updatedAt is timestamp;
-    }
-
     // =========================================================================
-    // Collection Rules
+    // Collection Rules (Unified Shared Team Access — No Login Required)
     // =========================================================================
 
     // 1. Proforma Invoice Audit Logs
     match /invoiceLogs/{logId} {
-      allow get: if isVerifiedUser() && isValidId(logId) && (
-        existing().ownerId == request.auth.uid || isAdmin()
-      );
+      allow get: if isValidId(logId) && isSharedTeamOwner(existing().ownerId);
 
-      allow list: if isVerifiedUser() && (
-        existing().ownerId == request.auth.uid || isBootstrappedAdmin()
-      );
+      allow list: if isSharedTeamOwner(existing().ownerId);
 
-      allow create: if isVerifiedUser()
-        && isValidId(logId)
+      allow create: if isValidId(logId)
         && isValidInvoiceLog(incoming())
         && incoming().keys().hasAll(['shippingCost', 'shippingLabel'])
-        && incoming().ownerId == request.auth.uid
         && incoming().status == 'active'
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
 
-      allow update: if isVerifiedUser()
-        && isValidId(logId)
+      allow update: if isValidId(logId)
         && isValidInvoiceLog(incoming())
+        && isSharedTeamOwner(existing().ownerId)
         && incoming().ownerId == existing().ownerId
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
+        && existing().status != 'archived'
         && (
-          isAdmin() || (
-            existing().ownerId == request.auth.uid
-            && existing().status != 'archived'
-            && (
-              (incoming().status == 'archived'
-                && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
-              ||
-              (incoming().diff(existing()).affectedKeys().hasOnly(['actionType', 'updatedAt']))
-            )
-          )
+          (incoming().status == 'archived'
+            && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
+          ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['actionType', 'updatedAt']))
         );
 
-      allow delete: if isVerifiedUser() && isValidId(logId) && (
-        existing().ownerId == request.auth.uid || isAdmin()
-      );
+      allow delete: if isValidId(logId) && isSharedTeamOwner(existing().ownerId);
 
       // Subcollection: Line items belonging to an InvoiceLog
       match /items/{itemId} {
-        allow get: if isVerifiedUser() && isValidId(logId) && isValidId(itemId) && (
-          get(/databases/$(database)/documents/invoiceLogs/$(logId)).data.ownerId == request.auth.uid || isAdmin()
-        );
+        allow get: if isValidId(logId) && isValidId(itemId)
+          && isSharedTeamOwner(get(/databases/$(database)/documents/invoiceLogs/$(logId)).data.ownerId);
 
-        allow list: if isVerifiedUser() && isValidId(logId) && (
-          existing().ownerId == request.auth.uid || isBootstrappedAdmin()
-        );
+        allow list: if isValidId(logId) && isSharedTeamOwner(existing().ownerId);
 
-        allow create: if isVerifiedUser()
-          && isValidId(logId)
+        allow create: if isValidId(logId)
           && isValidId(itemId)
           && isValidInvoiceLogItem(incoming(), logId)
-          && incoming().ownerId == request.auth.uid
           && incoming().createdAt == request.time
           && existsAfter(/databases/$(database)/documents/invoiceLogs/$(logId))
-          && getAfter(/databases/$(database)/documents/invoiceLogs/$(logId)).data.ownerId == request.auth.uid;
+          && isSharedTeamOwner(getAfter(/databases/$(database)/documents/invoiceLogs/$(logId)).data.ownerId);
 
         allow update: if false;
 
-        allow delete: if isVerifiedUser() && isValidId(logId) && isValidId(itemId) && (
-          existing().ownerId == request.auth.uid || isAdmin()
-        );
+        allow delete: if isValidId(logId) && isValidId(itemId)
+          && isSharedTeamOwner(existing().ownerId);
       }
     }
 
-    // 2. Saved Bank Accounts
+    // 2. Shared Bank Accounts
     match /bankAccounts/{bankId} {
-      allow get: if isVerifiedUser() && isValidId(bankId) && (
-        existing().ownerId == request.auth.uid || isAdmin()
-      );
+      allow get: if isValidId(bankId) && isSharedTeamOwner(existing().ownerId);
 
-      allow list: if isVerifiedUser() && (
-        existing().ownerId == request.auth.uid || isBootstrappedAdmin()
-      );
+      allow list: if isSharedTeamOwner(existing().ownerId);
 
-      allow create: if isVerifiedUser()
-        && isValidId(bankId)
+      allow create: if isValidId(bankId)
         && isValidBankAccountRecord(incoming())
-        && incoming().ownerId == request.auth.uid
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
 
-      allow update: if isVerifiedUser()
-        && isValidId(bankId)
+      allow update: if isValidId(bankId)
         && isValidBankAccountRecord(incoming())
+        && isSharedTeamOwner(existing().ownerId)
         && incoming().ownerId == existing().ownerId
         && incoming().createdAt == existing().createdAt
         && incoming().updatedAt == request.time
-        && (
-          isAdmin() || (
-            existing().ownerId == request.auth.uid
-            && incoming().diff(existing()).affectedKeys().hasOnly([
-              'bankName', 'bankShortName', 'accountHolder', 'accountNumber', 'updatedAt'
-            ])
-          )
-        );
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'bankName', 'bankShortName', 'accountHolder', 'accountNumber', 'updatedAt'
+        ]);
 
-      allow delete: if isVerifiedUser() && isValidId(bankId) && (
-        existing().ownerId == request.auth.uid || isAdmin()
-      );
-    }
-
-    // 3. User Preferences (Company Profile & Footer)
-    match /userSettings/{userId} {
-      allow get: if isVerifiedUser() && isValidId(userId) && (
-        userId == request.auth.uid || isAdmin()
-      );
-
-      allow list: if false;
-
-      allow create: if isVerifiedUser()
-        && isValidId(userId)
-        && userId == request.auth.uid
-        && isValidUserPreference(incoming())
-        && incoming().ownerId == request.auth.uid
-        && incoming().updatedAt == request.time;
-
-      allow update: if isVerifiedUser()
-        && isValidId(userId)
-        && isValidUserPreference(incoming())
-        && incoming().ownerId == existing().ownerId
-        && incoming().updatedAt == request.time
-        && (
-          isAdmin() || (
-            userId == request.auth.uid
-            && incoming().diff(existing()).affectedKeys().hasOnly(['company', 'footer', 'updatedAt'])
-          )
-        );
-
-      allow delete: if isVerifiedUser() && isValidId(userId) && (
-        userId == request.auth.uid || isAdmin()
-      );
+      allow delete: if isValidId(bankId) && isSharedTeamOwner(existing().ownerId);
     }
   }
 }

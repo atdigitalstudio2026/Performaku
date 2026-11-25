@@ -30,6 +30,7 @@ import {
   calculateInvoiceTotals,
   calculateItemMetrics,
   formatAmount,
+  formatTodayCityDate,
   formatWeight,
   readFileAsDataUrl,
 } from '../utils/formatters';
@@ -491,12 +492,26 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
           </div>
 
           <div>
-            <label className="block text-xs font-medium text-slate-700 mb-1">Kota &amp; Tanggal</label>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-xs font-medium text-slate-700">Kota &amp; Tanggal</label>
+              <button
+                type="button"
+                onClick={() =>
+                  onChangeInvoice({
+                    ...invoice,
+                    cityDate: formatTodayCityDate(invoice.cityDate),
+                  })
+                }
+                className="text-[11px] font-medium text-[#1D4ED8] hover:text-blue-800 transition-colors cursor-pointer"
+              >
+                Hari Ini
+              </button>
+            </div>
             <input
               type="text"
               value={invoice.cityDate}
               onChange={(e) => onChangeInvoice({ ...invoice, cityDate: e.target.value })}
-              placeholder="Jakarta, 18 November 2026"
+              placeholder={formatTodayCityDate()}
               className="w-full px-3 py-2 text-sm rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
             />
           </div>
@@ -831,6 +846,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                       <option value="Sak">Sak</option>
                       <option value="Bal">Bal</option>
                       <option value="Karton">Karton</option>
+                      <option value="Pail">Pail</option>
                       <option value="Pcs">Pcs</option>
                     </select>
                   </div>

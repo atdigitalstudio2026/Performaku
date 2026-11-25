@@ -8,6 +8,37 @@ export function formatAmount(value: number, format: 'comma' | 'dot' = 'comma'): 
   return new Intl.NumberFormat('en-US').format(safeValue);
 }
 
+const ID_MONTHS = [
+  'Januari',
+  'Februari',
+  'Maret',
+  'April',
+  'Mei',
+  'Juni',
+  'Juli',
+  'Agustus',
+  'September',
+  'Oktober',
+  'November',
+  'Desember',
+];
+
+export function formatTodayCityDate(existingCityDate?: string): string {
+  const now = new Date();
+  const day = now.getDate();
+  const month = ID_MONTHS[now.getMonth()];
+  const year = now.getFullYear();
+
+  let city = 'Jakarta';
+  if (existingCityDate && existingCityDate.includes(',')) {
+    const prefix = existingCityDate.split(',')[0].trim();
+    if (prefix) {
+      city = prefix;
+    }
+  }
+  return `${city}, ${day} ${month} ${year}`;
+}
+
 export function formatWeight(value: number, format: 'comma' | 'dot' = 'comma'): string {
   const safeValue = Number.isFinite(value) ? Math.round(value * 100) / 100 : 0;
   if (format === 'dot') {

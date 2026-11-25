@@ -2,24 +2,25 @@
   "entities": {
     "InvoiceLog": {
       "title": "InvoiceLog",
-      "description": "Catatan riwayat Proforma Invoice yang pernah dibuat, dicetak, atau diunduh sebagai PDF.",
+      "description": "Catatan riwayat Proforma Invoice bersama seluruh admin yang pernah dibuat, dicetak, atau diunduh sebagai PDF.",
       "type": "object",
       "properties": {
         "ownerId": {
           "type": "string",
+          "enum": ["shared_team"],
           "minLength": 1,
           "maxLength": 128,
-          "description": "UID pengguna Firebase Auth pembuat dokumen."
+          "description": "Identifier ruang kerja bersama ('shared_team')."
         },
         "ownerEmail": {
           "type": "string",
           "maxLength": 200,
-          "description": "Email pengguna pembuat dokumen."
+          "description": "Opsional label kontak/email pembuat dokumen."
         },
         "ownerName": {
           "type": "string",
           "maxLength": 120,
-          "description": "Nama tampilan pembuat dokumen."
+          "description": "Nama admin pembuat dokumen."
         },
         "actionType": {
           "type": "string",
@@ -190,6 +191,8 @@
         "taxLabel",
         "qtyUnit",
         "tableHeaderColor",
+        "shippingCost",
+        "shippingLabel",
         "depositAmount",
         "depositLabel",
         "additionalNote",
@@ -213,11 +216,12 @@
     },
     "InvoiceLogItem": {
       "title": "InvoiceLogItem",
-      "description": "Baris item barang milik sebuah dokumen log Proforma Invoice.",
+      "description": "Baris item barang milik sebuah dokumen log Proforma Invoice bersama.",
       "type": "object",
       "properties": {
         "ownerId": {
           "type": "string",
+          "enum": ["shared_team"],
           "minLength": 1,
           "maxLength": 128
         },
@@ -272,11 +276,12 @@
     },
     "BankAccountRecord": {
       "title": "BankAccountRecord",
-      "description": "Daftar rekening bank tersimpan milik pengguna di Firestore.",
+      "description": "Daftar rekening bank bersama seluruh admin di Firestore.",
       "type": "object",
       "properties": {
         "ownerId": {
           "type": "string",
+          "enum": ["shared_team"],
           "minLength": 1,
           "maxLength": 128
         },
@@ -318,34 +323,6 @@
         "createdAt",
         "updatedAt"
       ]
-    },
-    "UserPreference": {
-      "title": "UserPreference",
-      "description": "Preferensi profil perusahaan dan footer dokumen milik pengguna.",
-      "type": "object",
-      "properties": {
-        "ownerId": {
-          "type": "string",
-          "minLength": 1,
-          "maxLength": 128
-        },
-        "company": {
-          "type": "object"
-        },
-        "footer": {
-          "type": "object"
-        },
-        "updatedAt": {
-          "type": "string",
-          "format": "date-time"
-        }
-      },
-      "required": [
-        "ownerId",
-        "company",
-        "footer",
-        "updatedAt"
-      ]
     }
   },
   "firestore": {
@@ -353,7 +330,7 @@
       "schema": {
         "$ref": "#/entities/InvoiceLog"
       },
-      "description": "Menyimpan riwayat dan log transaksi Proforma Invoice yang dibuat atau diekspor."
+      "description": "Menyimpan riwayat dan log transaksi Proforma Invoice bersama untuk semua admin."
     },
     "/invoiceLogs/{logId}/items/{itemId}": {
       "schema": {
@@ -365,13 +342,7 @@
       "schema": {
         "$ref": "#/entities/BankAccountRecord"
       },
-      "description": "Menyimpan daftar rekening bank kustom pengguna."
-    },
-    "/userSettings/{userId}": {
-      "schema": {
-        "$ref": "#/entities/UserPreference"
-      },
-      "description": "Menyimpan profil perusahaan dan footer default pengguna di cloud."
+      "description": "Menyimpan daftar rekening bank bersama seluruh admin di cloud."
     }
   }
 }

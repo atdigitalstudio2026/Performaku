@@ -1,23 +1,17 @@
 import React, { useMemo, useState } from 'react';
-import { User } from 'firebase/auth';
 import {
-  AlertCircle,
   Archive,
-  Check,
   Cloud,
   CloudUpload,
-  Copy,
   Download,
-  ExternalLink,
   Eye,
   FileUp,
   History,
-  LogIn,
   Search,
   Trash2,
+  User as UserIcon,
   X,
 } from 'lucide-react';
-import { AuthErrorDetails, FIREBASE_PROJECT_ID } from '../firebase';
 import {
   CompanyProfile,
   DocumentFooter,
@@ -30,16 +24,12 @@ import { formatAmount, formatWeight } from '../utils/formatters';
 import { InvoicePreview } from './InvoicePreview';
 
 interface InvoiceLogsViewProps {
-  user: User | null;
-  authReady: boolean;
-  isSigningIn: boolean;
-  authError: AuthErrorDetails | null;
+  adminName: string;
+  onChangeAdminName: (name: string) => void;
   logs: InvoiceLogRecord[];
   localOnlyCount: number;
   loadingLogs: boolean;
   logsError: string;
-  isAdmin: boolean;
-  onSignIn: () => void;
   onSyncLocalLogs: () => Promise<void>;
   onSaveCurrentToLog: () => Promise<void>;
   onFetchLogItems: (log: InvoiceLogRecord) => Promise<InvoiceItem[]>;
@@ -64,16 +54,12 @@ const ACTION_LABELS: Record<InvoiceLogAction, string> = {
 };
 
 export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
-  user,
-  authReady,
-  isSigningIn,
-  authError,
+  adminName,
+  onChangeAdminName,
   logs,
   localOnlyCount,
   loadingLogs,
   logsError,
-  isAdmin,
-  onSignIn,
   onSyncLocalLogs,
   onSaveCurrentToLog,
   onFetchLogItems,
@@ -88,15 +74,11 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [isSavingCurrent, setIsSavingCurrent] = useState(false);
   const [isSyncingLocal, setIsSyncingLocal] = useState(false);
-  const [copiedDomain, setCopiedDomain] = useState(false);
 
   const [previewState, setPreviewState] = useState<{
     log: InvoiceLogRecord;
     items: InvoiceItem[];
   } | null>(null);
-
-  const currentHostname = typeof window !== 'undefined' ? window.location.hostname : '';
-  const currentUrl = typeof window !== 'undefined' ? window.location.href : '#';
 
   const filteredLogs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -115,7 +97,6 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
         log.invoiceSnapshot.invoiceNumber,
         log.sellerName,
         log.invoiceSnapshot.cityDate,
-        log.ownerEmail,
         log.ownerName,
       ]
         .join(' ')
@@ -179,32 +160,14 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
     }
   };
 
-  const handleCopyHostname = async () => {
-    if (!currentHostname) return;
-    try {
-      await navigator.clipboard.writeText(currentHostname);
-      setCopiedDomain(true);
-      setTimeout(() => setCopiedDomain(false), 2000);
-    } catch {
-      // Clipboard fallback ignored
-    }
-  };
-
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-8 py-8">
       {/* Header */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
         <div>
-          <div className="flex items-center gap-2.5">
-            <h1 className="text-xl font-bold text-slate-900">Log Proforma Invoice</h1>
-            {user && isAdmin && (
-              <span className="text-[11px] font-medium text-[#1D4ED8] border border-blue-200 bg-blue-50 px-2 py-0.5 rounded">
-                Akses Admin
-              </span>
-            )}
-          </div>
+          <h1 className="text-xl font-bold text-slate-900">Log Proforma Invoice</h1>
           <p className="text-sm text-slate-600 mt-1">
-            Setiap Proforma Invoice yang diunduh PDF, dicetak, atau disimpan akan tercatat otomatis agar bisa dibuka kembali kapan saja.
+            Data terpusat di Firebase untuk seluruh tim admin. Setiap Proforma Invoice yang diunduh PDF, dicetak, atau disimpan tercatat otomatis dan bisa dilihat bersama.
           </p>
         </div>
 
@@ -219,128 +182,13 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
         </button>
       </div>
 
-      {/* Firebase Connection & Troubleshooting Panel (when not signed in) */}
-      {authReady && !user && (
-        <div className="mb-5 bg-white border border-slate-200 rounded-lg p-4 space-y-3">
-          <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
-            <div className="min-w-0">
-              <div className="text-sm font-semibold text-slate-900">
-                Log Otomatis Aktif (Penyimpanan Lokal Browser)
-              </div>
-              <p className="text-xs text-slate-600 mt-0.5 leading-relaxed">
-                Anda sudah bisa langsung menggunakan Log Invoice sekarang tanpa login. Jika ingin
-                menyimpan &amp; menyinkronkan log ke cloud Firebase lintas perangkat, masuk dengan
-                akun Google.
-              </p>
-            </div>
-
-            <div className="flex flex-wrap items-center gap-2 shrink-0">
-              <button
-                type="button"
-                onClick={onSignIn}
-                disabled={isSigningIn}
-                className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-md bg-[#1D4ED8] text-white hover:bg-blue-800 disabled:opacity-60 transition-colors cursor-pointer whitespace-nowrap"
-              >
-                <LogIn className="w-3.5 h-3.5" />
-                {isSigningIn ? 'Membuka Google...' : 'Masuk dengan Google'}
-              </button>
-
-              <a
-                href={currentUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 transition-colors whitespace-nowrap"
-              >
-                <ExternalLink className="w-3.5 h-3.5" />
-                Buka di Tab Baru
-              </a>
-            </div>
-          </div>
-
-          {authError && (
-            <div className="rounded-md border border-amber-200 bg-amber-50/80 p-3 text-xs text-amber-950 space-y-2">
-              <div className="flex items-start gap-2">
-                <AlertCircle className="w-4 h-4 text-amber-700 shrink-0 mt-0.5" />
-                <div className="min-w-0 flex-1">
-                  <div className="font-semibold">
-                    {authError.title}{' '}
-                    <span className="font-mono font-normal text-[11px] text-amber-800">
-                      ({authError.code})
-                    </span>
-                  </div>
-                  <p className="text-amber-900 mt-0.5 leading-relaxed">{authError.detail}</p>
-                </div>
-              </div>
-
-              {authError.showDomainHelper && currentHostname && (
-                <div className="pl-6 flex flex-wrap items-center gap-2 pt-1">
-                  <span className="text-[11px] text-amber-900">Domain saat ini:</span>
-                  <code className="px-2 py-0.5 rounded bg-white border border-amber-300 font-mono text-[11px] text-slate-900">
-                    {currentHostname}
-                  </code>
-                  <button
-                    type="button"
-                    onClick={handleCopyHostname}
-                    className="inline-flex items-center gap-1 px-2 py-0.5 text-[11px] font-medium rounded border border-amber-300 bg-white text-slate-800 hover:bg-amber-100 cursor-pointer"
-                  >
-                    {copiedDomain ? (
-                      <>
-                        <Check className="w-3 h-3 text-emerald-600" />
-                        Disalin
-                      </>
-                    ) : (
-                      <>
-                        <Copy className="w-3 h-3" />
-                        Salin Domain
-                      </>
-                    )}
-                  </button>
-                  <a
-                    href={`https://console.firebase.google.com/project/${FIREBASE_PROJECT_ID}/authentication/settings`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1D4ED8] hover:underline"
-                  >
-                    Tambahkan di Firebase Authorized Domains
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              )}
-
-              {authError.showProviderHelper && (
-                <div className="pl-6 pt-1">
-                  <a
-                    href={`https://console.firebase.google.com/project/${FIREBASE_PROJECT_ID}/authentication/providers`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center gap-1 text-[11px] font-semibold text-[#1D4ED8] hover:underline"
-                  >
-                    Buka Firebase Console → Sign-in Method
-                    <ExternalLink className="w-3 h-3" />
-                  </a>
-                </div>
-              )}
-
-              {authError.showNewTabHelper && (
-                <div className="pl-6 pt-1 text-[11px] text-amber-900">
-                  Tip: Jika aplikasi dibuka di dalam panel pratinjau, browser sering memblokir popup
-                  Google. Klik tombol <strong>Buka di Tab Baru</strong> di kanan atas, lalu ulangi
-                  login Google dari tab tersebut.
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-      )}
-
-      {/* Cloud Sync Banner when signed in and local logs exist */}
-      {user && localOnlyCount > 0 && (
+      {/* Sync Banner if any offline/legacy local logs exist */}
+      {localOnlyCount > 0 && (
         <div className="mb-5 bg-white border border-blue-200 rounded-lg p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-2.5 text-xs text-slate-700">
             <Cloud className="w-4 h-4 text-[#1D4ED8] shrink-0" />
             <span>
-              Terdapat <strong>{localOnlyCount} log lokal</strong> yang dibuat sebelum login.
-              Unggah ke Firebase agar tersimpan permanen di cloud.
+              Terdapat <strong>{localOnlyCount} log lokal</strong> di browser ini yang belum masuk ke database bersama Firebase.
             </span>
           </div>
           <button
@@ -350,25 +198,37 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
             className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md bg-[#1D4ED8] text-white hover:bg-blue-800 disabled:opacity-60 transition-colors cursor-pointer whitespace-nowrap shrink-0"
           >
             <CloudUpload className="w-3.5 h-3.5" />
-            {isSyncingLocal ? 'Menyinkronkan...' : `Sinkronkan (${localOnlyCount}) ke Firebase`}
+            {isSyncingLocal ? 'Menyinkronkan...' : `Unggah (${localOnlyCount}) ke Database Bersama`}
           </button>
         </div>
       )}
 
-      {/* Filter & Search Bar */}
-      <div className="bg-white border border-slate-200 rounded-lg p-3.5 mb-4 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+      {/* Filter, Admin Name & Search Bar */}
+      <div className="bg-white border border-slate-200 rounded-lg p-3.5 mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
         <div className="relative flex-1">
           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="text"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Cari nama pembeli, nomor invoice, penjual, atau pembuat..."
+            placeholder="Cari nama pembeli, nomor invoice, penjual, atau nama admin..."
             className="w-full pl-9 pr-3 py-2 text-sm rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
           />
         </div>
 
-        <div className="flex items-center gap-3 shrink-0">
+        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
+          <div className="relative">
+            <UserIcon className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={adminName}
+              onChange={(e) => onChangeAdminName(e.target.value)}
+              placeholder="Nama Admin (opsional)"
+              maxLength={80}
+              className="w-44 pl-8 pr-2.5 py-2 text-xs rounded-md border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+            />
+          </div>
+
           <select
             value={filterMode}
             onChange={(e) =>
@@ -399,7 +259,7 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
       <div className="bg-white border border-slate-200 rounded-lg overflow-hidden">
         {loadingLogs && logs.length === 0 ? (
           <div className="p-10 text-center text-sm text-slate-500">
-            Memuat data log dari Firebase...
+            Memuat data log bersama dari Firebase...
           </div>
         ) : filteredLogs.length === 0 ? (
           <div className="p-10 text-center">
@@ -408,7 +268,7 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
             </p>
             <p className="text-xs text-slate-500 mt-1">
               {logs.length === 0
-                ? 'Saat Anda mengunduh PDF, mencetak, atau menekan "Catat Invoice Aktif ke Log", datanya akan tercatat otomatis di sini.'
+                ? 'Saat admin mengunduh PDF, mencetak, atau menekan "Catat Invoice Aktif ke Log", datanya otomatis tersimpan dan tampil untuk semua admin di sini.'
                 : 'Coba ubah kata kunci pencarian atau filter aktivitas.'}
             </p>
           </div>
@@ -472,11 +332,13 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
                     <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                       <span className="tabular-nums">Tercatat {dateStr}</span>
                       <span className="text-slate-300">·</span>
-                      <span>Oleh {log.ownerEmail || log.ownerName || 'Admin Lokal'}</span>
-                      <span className="text-slate-300">·</span>
-                      <span className={isLocal ? 'text-slate-500' : 'text-emerald-700 font-medium'}>
-                        {isLocal ? 'Lokal Browser' : 'Firebase Cloud'}
-                      </span>
+                      <span>Oleh {log.ownerName || 'Tim Admin'}</span>
+                      {isLocal && (
+                        <>
+                          <span className="text-slate-300">·</span>
+                          <span className="text-amber-700 font-medium">Menunggu sinkronisasi</span>
+                        </>
+                      )}
                     </div>
                   </div>
 
