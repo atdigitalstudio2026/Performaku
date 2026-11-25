@@ -836,6 +836,7 @@ export default function App() {
               await deleteInvoiceLog(log.id);
               showNotice('Log dihapus permanen dari database bersama Firebase.');
             }}
+            onNotify={showNotice}
           />
         </main>
       )}
@@ -850,6 +851,7 @@ export default function App() {
             onFetchLogItems={handleFetchLogItems}
             onLoadLogToEditor={handleLoadLogToEditor}
             onDownloadLogPdf={handleDownloadLogPdf}
+            onNotify={showNotice}
           />
         </main>
       )}

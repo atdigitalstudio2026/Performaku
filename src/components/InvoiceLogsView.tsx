@@ -5,6 +5,8 @@ import {
   CloudUpload,
   Download,
   Eye,
+  FileSpreadsheet,
+  FileText,
   FileUp,
   History,
   Search,
@@ -22,6 +24,7 @@ import {
   InvoicePaymentStatus,
   ProformaInvoiceData,
 } from '../types/invoice';
+import { exportAllInvoicesExcel, exportAllInvoicesPdf } from '../utils/exportReports';
 import { formatAmount, formatWeight } from '../utils/formatters';
 import { InvoicePreview } from './InvoicePreview';
 
@@ -51,6 +54,7 @@ interface InvoiceLogsViewProps {
   ) => Promise<void>;
   onArchiveLog: (log: InvoiceLogRecord) => Promise<void>;
   onDeleteLog: (log: InvoiceLogRecord) => Promise<void>;
+  onNotify?: (message: string) => void;
 }
 
 const ACTION_LABELS: Record<InvoiceLogAction, string> = {
@@ -82,6 +86,7 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
   onDownloadLogPdf,
   onArchiveLog,
   onDeleteLog,
+  onNotify,
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | InvoiceLogAction | 'archived'>('all');
@@ -91,6 +96,7 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [isSavingCurrent, setIsSavingCurrent] = useState(false);
   const [isSyncingLocal, setIsSyncingLocal] = useState(false);
+  const [exportingReport, setExportingReport] = useState<'excel' | 'pdf' | null>(null);
 
   const [previewState, setPreviewState] = useState<{
     log: InvoiceLogRecord;
@@ -189,10 +195,74 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
     }
   };
 
+  const hasActiveFilter =
+    searchQuery.trim() !== '' ||
+    filterMode !== 'all' ||
+    salesFilter !== 'all' ||
+    paymentFilter !== 'all';
+
+  const exportTargetLogs = hasActiveFilter ? filteredLogs : logs;
+
+  const exportFilterSummary = useMemo(() => {
+    if (!hasActiveFilter) {
+      return 'Seluruh Data Proforma Invoice';
+    }
+    const parts: string[] = [];
+    if (salesFilter !== 'all') {
+      parts.push(
+        `Sales: ${salesFilter === '__unassigned__' ? 'Belum Ditentukan' : salesFilter}`
+      );
+    }
+    if (paymentFilter !== 'all') {
+      const label =
+        paymentFilter === 'paid'
+          ? 'Lunas'
+          : paymentFilter === 'pending'
+          ? 'Pending'
+          : 'Cancel';
+      parts.push(`Status: ${label}`);
+    }
+    if (filterMode === 'archived') {
+      parts.push('Arsip Log');
+    } else if (filterMode !== 'all') {
+      parts.push(`Aktivitas: ${ACTION_LABELS[filterMode]}`);
+    }
+    if (searchQuery.trim()) {
+      parts.push(`Cari: "${searchQuery.trim()}"`);
+    }
+    return `Data Invoice Terfilter (${parts.join(' · ')})`;
+  }, [hasActiveFilter, salesFilter, paymentFilter, filterMode, searchQuery]);
+
+  const handleExportAllExcel = async () => {
+    if (exportingReport || exportTargetLogs.length === 0) return;
+    setExportingReport('excel');
+    try {
+      const filename = await exportAllInvoicesExcel(exportTargetLogs, exportFilterSummary);
+      onNotify?.(`Laporan Excel data invoice berhasil diunduh: ${filename}`);
+    } catch {
+      onNotify?.('Gagal membuat file Excel seluruh data invoice.');
+    } finally {
+      setExportingReport(null);
+    }
+  };
+
+  const handleExportAllPdf = () => {
+    if (exportingReport || exportTargetLogs.length === 0) return;
+    setExportingReport('pdf');
+    try {
+      const filename = exportAllInvoicesPdf(exportTargetLogs, exportFilterSummary);
+      onNotify?.(`Laporan PDF data invoice berhasil diunduh: ${filename}`);
+    } catch {
+      onNotify?.('Gagal membuat file PDF seluruh data invoice.');
+    } finally {
+      setExportingReport(null);
+    }
+  };
+
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-8 py-8">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-5">
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-5">
         <div>
           <h1 className="text-xl font-bold text-slate-900">Log Proforma Invoice</h1>
           <p className="text-sm text-slate-600 mt-1">
@@ -201,15 +271,55 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleSaveCurrent}
-          disabled={isSavingCurrent}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-md bg-[#1D4ED8] text-white hover:bg-blue-800 disabled:opacity-60 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-        >
-          <History className="w-3.5 h-3.5" />
-          {isSavingCurrent ? 'Menyimpan...' : 'Catat Invoice Aktif ke Log'}
-        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => void handleExportAllExcel()}
+            disabled={exportTargetLogs.length === 0 || exportingReport !== null}
+            title={
+              hasActiveFilter
+                ? 'Unduh Excel sesuai filter aktif'
+                : 'Unduh seluruh data invoice dalam format Excel rapi'
+            }
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-md border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            {exportingReport === 'excel'
+              ? 'Menyusun Excel...'
+              : hasActiveFilter
+              ? 'Unduh Excel (Filter)'
+              : 'Unduh Excel (.xlsx)'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportAllPdf}
+            disabled={exportTargetLogs.length === 0 || exportingReport !== null}
+            title={
+              hasActiveFilter
+                ? 'Unduh PDF presentasi sesuai filter aktif'
+                : 'Unduh seluruh data invoice dalam format PDF presentasi'
+            }
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            {exportingReport === 'pdf'
+              ? 'Menyusun PDF...'
+              : hasActiveFilter
+              ? 'Unduh PDF (Filter)'
+              : 'Unduh PDF Laporan'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleSaveCurrent}
+            disabled={isSavingCurrent}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-md bg-[#1D4ED8] text-white hover:bg-blue-800 disabled:opacity-60 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <History className="w-3.5 h-3.5" />
+            {isSavingCurrent ? 'Menyimpan...' : 'Catat Invoice Aktif'}
+          </button>
+        </div>
       </div>
 
       {/* Sync Banner if any offline/legacy local logs exist */}

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Download, Eye, FileUp, X } from 'lucide-react';
+import { Download, Eye, FileSpreadsheet, FileText, FileUp, X } from 'lucide-react';
 import { SALES_REP_OPTIONS } from '../data/defaultInvoice';
 import {
   CompanyProfile,
@@ -9,6 +9,10 @@ import {
   InvoicePaymentStatus,
   ProformaInvoiceData,
 } from '../types/invoice';
+import {
+  exportSalesPerformanceExcel,
+  exportSalesPerformancePdf,
+} from '../utils/exportReports';
 import { formatAmount, formatWeight } from '../utils/formatters';
 import { InvoicePreview } from './InvoicePreview';
 
@@ -29,6 +33,7 @@ interface SalesPerformanceViewProps {
     footer: DocumentFooter
   ) => void;
   onDownloadLogPdf: (log: InvoiceLogRecord, items: InvoiceItem[]) => Promise<void>;
+  onNotify?: (message: string) => void;
 }
 
 function toInputDateStr(date: Date): string {
@@ -109,6 +114,7 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
   onFetchLogItems,
   onLoadLogToEditor,
   onDownloadLogPdf,
+  onNotify,
 }) => {
   const initialRange = getPresetRange('month');
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('month');
@@ -117,6 +123,7 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
   const [selectedSales, setSelectedSales] = useState<string>('all');
   const [ledgerStatusFilter, setLedgerStatusFilter] = useState<'all' | InvoicePaymentStatus>('all');
   const [busyLogId, setBusyLogId] = useState<string | null>(null);
+  const [exportingReport, setExportingReport] = useState<'excel' | 'pdf' | null>(null);
   const [previewState, setPreviewState] = useState<{
     log: InvoiceLogRecord;
     items: InvoiceItem[];
@@ -311,57 +318,76 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
     }
   };
 
-  const handleExportCsv = () => {
-    const headers = [
-      'Tanggal Log',
-      'Nama Sales',
-      'Status Pembayaran',
-      'Pembeli',
-      'Penjual',
-      'Nomor Invoice',
-      'Berat (Kg)',
-      'Grand Total',
-      'Potongan Deposit',
-      'Sisa Transfer',
-    ];
+  const formatInputDateLabel = (dateStr: string): string => {
+    const [y, m, d] = dateStr.split('-').map(Number);
+    if (!y || !m || !d) return dateStr;
+    return new Date(y, m - 1, d).toLocaleDateString('id-ID', {
+      day: '2-digit',
+      month: 'short',
+      year: 'numeric',
+    });
+  };
 
-    const escapeCsv = (val: string | number) => {
-      const str = String(val ?? '');
-      if (str.includes(',') || str.includes('"') || str.includes('\n')) {
-        return `"${str.replace(/"/g, '""')}"`;
-      }
-      return str;
-    };
+  const periodLabel = useMemo(() => {
+    if (periodPreset === 'all' || (!startDate && !endDate)) {
+      return 'Semua Waktu';
+    }
+    if (startDate && endDate && startDate === endDate) {
+      return formatInputDateLabel(startDate);
+    }
+    if (startDate && endDate) {
+      return `${formatInputDateLabel(startDate)} s/d ${formatInputDateLabel(endDate)}`;
+    }
+    if (startDate) return `Sejak ${formatInputDateLabel(startDate)}`;
+    return `Hingga ${formatInputDateLabel(endDate)}`;
+  }, [periodPreset, startDate, endDate]);
 
-    const rows = ledgerLogs.map((log) => [
-      new Date(log.createdAtMs).toLocaleDateString('id-ID'),
-      log.salesName || 'Belum Ditentukan',
-      PAYMENT_STATUS_LABELS[log.paymentStatus],
-      log.invoiceSnapshot.buyerName || '-',
-      log.sellerName || '-',
-      log.invoiceSnapshot.invoiceNumber || '-',
-      log.totalWeightKg,
-      log.grandTotal,
-      log.appliedDeposit,
-      log.netPayable,
-    ]);
+  const selectedSalesLabel =
+    selectedSales === 'all'
+      ? 'Semua Sales'
+      : selectedSales === '__unassigned__'
+      ? 'Belum Ditentukan'
+      : selectedSales;
 
-    const csvContent = [headers, ...rows].map((row) => row.map(escapeCsv).join(',')).join('\n');
-    const blob = new Blob(['\uFEFF' + csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    const periodTag =
-      startDate && endDate ? `${startDate}_sd_${endDate}` : 'semua_waktu';
-    const salesTag =
-      selectedSales === 'all'
-        ? 'semua_sales'
-        : selectedSales.toLowerCase().replace(/\s+/g, '_');
-    link.href = url;
-    link.download = `Performa_Sales_${salesTag}_${periodTag}.csv`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
+  const exportSalesBreakdown = useMemo(() => {
+    if (selectedSales === 'all') return salesBreakdown;
+    return salesBreakdown.filter((r) => r.salesName === selectedSales);
+  }, [salesBreakdown, selectedSales]);
+
+  const handleExportExcel = async () => {
+    if (exportingReport || scopedLogs.length === 0) return;
+    setExportingReport('excel');
+    try {
+      const filename = await exportSalesPerformanceExcel({
+        periodLabel,
+        selectedSalesLabel,
+        salesBreakdown: exportSalesBreakdown,
+        scopedLogs,
+      });
+      onNotify?.(`Laporan Excel Performa Sales berhasil diunduh: ${filename}`);
+    } catch {
+      onNotify?.('Gagal membuat file Excel laporan performa sales.');
+    } finally {
+      setExportingReport(null);
+    }
+  };
+
+  const handleExportPdfReport = () => {
+    if (exportingReport || scopedLogs.length === 0) return;
+    setExportingReport('pdf');
+    try {
+      const filename = exportSalesPerformancePdf({
+        periodLabel,
+        selectedSalesLabel,
+        salesBreakdown: exportSalesBreakdown,
+        scopedLogs,
+      });
+      onNotify?.(`Laporan PDF Presentasi berhasil diunduh: ${filename}`);
+    } catch {
+      onNotify?.('Gagal membuat file PDF laporan performa sales.');
+    } finally {
+      setExportingReport(null);
+    }
   };
 
   const periodPresets: { id: PeriodPreset; label: string }[] = [
@@ -384,15 +410,27 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleExportCsv}
-          disabled={ledgerLogs.length === 0}
-          className="inline-flex items-center gap-2 px-4 py-2 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap shrink-0"
-        >
-          <Download className="w-3.5 h-3.5" />
-          Unduh Laporan CSV
-        </button>
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
+          <button
+            type="button"
+            onClick={() => void handleExportExcel()}
+            disabled={scopedLogs.length === 0 || exportingReport !== null}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-md bg-[#1D4ED8] text-white hover:bg-blue-800 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <FileSpreadsheet className="w-3.5 h-3.5" />
+            {exportingReport === 'excel' ? 'Menyusun Excel...' : 'Unduh Excel (.xlsx)'}
+          </button>
+
+          <button
+            type="button"
+            onClick={handleExportPdfReport}
+            disabled={scopedLogs.length === 0 || exportingReport !== null}
+            className="inline-flex items-center gap-2 px-3.5 py-2 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-800 hover:bg-slate-50 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+          >
+            <FileText className="w-3.5 h-3.5" />
+            {exportingReport === 'pdf' ? 'Menyusun PDF...' : 'Unduh PDF Presentasi'}
+          </button>
+        </div>
       </div>
 
       {/* Period & Sales Filter Bar */}
