@@ -88,6 +88,7 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'ownerId', 'ownerEmail', 'ownerName', 'actionType', 'status',
+          'salesName', 'paymentStatus',
           'title', 'cityDate', 'invoiceNumber', 'showInvoiceNumber',
           'buyerName', 'buyerAddress', 'sellerName', 'currency', 'numberFormat',
           'ppnMode', 'ppnRate', 'qtyHeader', 'priceHeader', 'taxLabel', 'qtyUnit',
@@ -102,6 +103,8 @@ service cloud.firestore {
         && data.ownerName is string && data.ownerName.size() <= 120
         && data.actionType is string && data.actionType in ['manual_save', 'pdf_export', 'print', 'restored']
         && data.status is string && data.status in ['active', 'archived']
+        && (!('salesName' in data) || (data.salesName is string && data.salesName.size() <= 120))
+        && (!('paymentStatus' in data) || (data.paymentStatus is string && data.paymentStatus in ['pending', 'paid', 'cancelled']))
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 100
         && data.cityDate is string && data.cityDate.size() <= 100
         && data.invoiceNumber is string && data.invoiceNumber.size() <= 80
@@ -185,7 +188,7 @@ service cloud.firestore {
     // Collection Rules (Unified Shared Team Access — No Login Required)
     // =========================================================================
 
-    // 1. Proforma Invoice Audit Logs
+    // 1. Proforma Invoice Audit Logs & Sales Records
     match /invoiceLogs/{logId} {
       allow get: if isValidId(logId) && isSharedTeamOwner(existing().ownerId);
 
@@ -193,7 +196,7 @@ service cloud.firestore {
 
       allow create: if isValidId(logId)
         && isValidInvoiceLog(incoming())
-        && incoming().keys().hasAll(['shippingCost', 'shippingLabel'])
+        && incoming().keys().hasAll(['shippingCost', 'shippingLabel', 'salesName', 'paymentStatus'])
         && incoming().status == 'active'
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
@@ -210,6 +213,10 @@ service cloud.firestore {
             && incoming().diff(existing()).affectedKeys().hasOnly(['status', 'updatedAt']))
           ||
           (incoming().diff(existing()).affectedKeys().hasOnly(['actionType', 'updatedAt']))
+          ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['paymentStatus', 'updatedAt']))
+          ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['salesName', 'updatedAt']))
         );
 
       allow delete: if isValidId(logId) && isSharedTeamOwner(existing().ownerId);

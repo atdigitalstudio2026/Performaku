@@ -575,8 +575,10 @@ export async function downloadProformaInvoicePdf(
 
   cursorY += boxH + 6;
 
-  // Optional Signature Block
-  if (invoice.showSignature) {
+  // Bottom-left Best regards (Sales Name) & Optional Right-side Signature Block
+  const showLeftBestRegards =
+    invoice.showBestRegards !== false && Boolean(invoice.salesName?.trim());
+  if (showLeftBestRegards || invoice.showSignature) {
     if (cursorY + 32 > pageHeight - 28) {
       doc.addPage();
       cursorY = 24;
@@ -584,25 +586,43 @@ export async function downloadProformaInvoicePdf(
       cursorY += 4;
     }
 
-    const sigCenterX = pageWidth - marginX - 28;
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(9.5);
-    doc.setTextColor(15, 23, 42);
-    doc.text('Hormat kami,', sigCenterX, cursorY, { align: 'center' });
+    const blockStartY = cursorY;
 
-    cursorY += 20;
-    doc.setFont('helvetica', 'bold');
-    doc.text(invoice.signatureName || 'Finance', sigCenterX, cursorY, { align: 'center' });
-    doc.setDrawColor(15, 23, 42);
-    doc.setLineWidth(0.25);
-    doc.line(sigCenterX - 22, cursorY + 1, sigCenterX + 22, cursorY + 1);
-
-    if (invoice.signatureTitle.trim()) {
+    if (showLeftBestRegards) {
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
-      doc.setTextColor(71, 85, 105);
-      doc.text(invoice.signatureTitle.trim(), sigCenterX, cursorY + 5, { align: 'center' });
+      doc.setFontSize(9.5);
+      doc.setTextColor(51, 65, 85);
+      doc.text('Best regards,', marginX, blockStartY);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text((invoice.salesName || '').trim(), marginX, blockStartY + 18);
     }
+
+    if (invoice.showSignature) {
+      const sigCenterX = pageWidth - marginX - 28;
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(9.5);
+      doc.setTextColor(15, 23, 42);
+      doc.text('Hormat kami,', sigCenterX, blockStartY, { align: 'center' });
+
+      const sigNameY = blockStartY + 18;
+      doc.setFont('helvetica', 'bold');
+      doc.text(invoice.signatureName || 'Finance', sigCenterX, sigNameY, { align: 'center' });
+      doc.setDrawColor(15, 23, 42);
+      doc.setLineWidth(0.25);
+      doc.line(sigCenterX - 22, sigNameY + 1, sigCenterX + 22, sigNameY + 1);
+
+      if (invoice.signatureTitle.trim()) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(71, 85, 105);
+        doc.text(invoice.signatureTitle.trim(), sigCenterX, sigNameY + 5, { align: 'center' });
+      }
+    }
+
+    cursorY = blockStartY + 24;
   }
 
   // 6. DOCUMENT FOOTER (Drawn at bottom of every page)

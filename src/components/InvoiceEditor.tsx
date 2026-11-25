@@ -15,6 +15,7 @@ import {
   COMPANY_LOGO_PRESETS,
   CompanyLogoPreset,
   DEFAULT_BANK_ACCOUNTS,
+  SALES_REP_OPTIONS,
   TABLE_HEADER_COLOR_PRESETS,
 } from '../data/defaultInvoice';
 import {
@@ -561,6 +562,46 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
               placeholder="Kosongkan jika hanya ingin menampilkan nama pembeli"
               className="w-full px-3 py-2 text-sm rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8] resize-none"
             />
+          </div>
+
+          <div className="sm:col-span-2 pt-1">
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <label className="text-xs font-medium text-slate-700">
+                Nama Sales (Best regards,)
+              </label>
+              <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={invoice.showBestRegards !== false}
+                  onChange={(e) =>
+                    onChangeInvoice({ ...invoice, showBestRegards: e.target.checked })
+                  }
+                  className="rounded border-slate-300 text-[#1D4ED8] focus:ring-[#1D4ED8]"
+                />
+                Tampilkan di kiri bawah invoice
+              </label>
+            </div>
+            <select
+              value={invoice.salesName || ''}
+              onChange={(e) =>
+                onChangeInvoice({
+                  ...invoice,
+                  salesName: e.target.value,
+                  showBestRegards: e.target.value ? invoice.showBestRegards !== false : false,
+                })
+              }
+              className="w-full px-3 py-2 text-sm font-medium rounded-md border border-slate-300 bg-white text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+            >
+              <option value="">-- Pilih Nama Sales --</option>
+              {SALES_REP_OPTIONS.map((name) => (
+                <option key={name} value={name}>
+                  {name}
+                </option>
+              ))}
+            </select>
+            <p className="text-[11px] text-slate-500 mt-1">
+              Otomatis tercetak di kiri bawah invoice (&ldquo;Best regards,&rdquo;) dan tercatat ke database performa penjualan sales tersebut saat invoice berstatus Lunas.
+            </p>
           </div>
         </div>
       </section>

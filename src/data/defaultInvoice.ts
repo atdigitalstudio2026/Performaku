@@ -91,6 +91,13 @@ export const DEFAULT_BANK_ACCOUNTS: BankAccount[] = [
   },
 ];
 
+export const SALES_REP_OPTIONS = [
+  'Andi Triyanto',
+  'Ridwan Sahputra',
+  'Media Fitri',
+  'Zakia Syahrani',
+] as const;
+
 export const TABLE_HEADER_COLOR_PRESETS = [
   { label: 'Slate Gelap', hex: '#1E293B' },
   { label: 'Biru Korporat', hex: '#0B4F9C' },
@@ -134,6 +141,8 @@ export const DEFAULT_INVOICE_DATA: ProformaInvoiceData = {
   bankAccount: DEFAULT_BANK_ACCOUNTS[0],
   additionalNote: '',
   highlightTransferTotal: true,
+  salesName: SALES_REP_OPTIONS[0],
+  showBestRegards: true,
   showSignature: false,
   signatureName: 'Bagian Keuangan',
   signatureTitle: 'PT Exindokarsa Agung',

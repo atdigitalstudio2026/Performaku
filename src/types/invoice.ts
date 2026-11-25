@@ -65,6 +65,8 @@ export interface ProformaInvoiceData {
   bankAccount: BankAccount;
   additionalNote: string;
   highlightTransferTotal: boolean;
+  salesName?: string;
+  showBestRegards?: boolean;
   showSignature: boolean;
   signatureName: string;
   signatureTitle: string;
@@ -78,6 +80,7 @@ export interface SavedInvoiceDraft {
 
 export type InvoiceLogAction = 'manual_save' | 'pdf_export' | 'print' | 'restored';
 export type InvoiceLogStatus = 'active' | 'archived';
+export type InvoicePaymentStatus = 'pending' | 'paid' | 'cancelled';
 
 export interface InvoiceLogRecord {
   id: string;
@@ -86,6 +89,8 @@ export interface InvoiceLogRecord {
   ownerName: string;
   actionType: InvoiceLogAction;
   status: InvoiceLogStatus;
+  salesName: string;
+  paymentStatus: InvoicePaymentStatus;
   createdAtMs: number;
   updatedAtMs: number;
   itemCount: number;
@@ -103,4 +108,3 @@ export interface InvoiceLogRecord {
   storageSource?: 'firebase' | 'local';
   localItems?: InvoiceItem[];
 }
-

@@ -12,12 +12,14 @@ import { BankAccountsView } from './components/BankAccountsView';
 import { InvoiceEditor } from './components/InvoiceEditor';
 import { InvoiceLogsView } from './components/InvoiceLogsView';
 import { InvoicePreview } from './components/InvoicePreview';
+import { SalesPerformanceView } from './components/SalesPerformanceView';
 import { SavedDraftsView } from './components/SavedDraftsView';
 import {
   DEFAULT_BANK_ACCOUNTS,
   DEFAULT_COMPANY_PROFILE,
   DEFAULT_DOCUMENT_FOOTER,
   DEFAULT_INVOICE_DATA,
+  SALES_REP_OPTIONS,
 } from './data/defaultInvoice';
 import {
   archiveInvoiceLog,
@@ -30,6 +32,8 @@ import {
   subscribeInvoiceLogs,
   updateCloudBankAccount,
   updateInvoiceLogAction,
+  updateInvoicePaymentStatus,
+  updateInvoiceSalesName,
 } from './services/invoiceLogService';
 import {
   BankAccount,
@@ -38,13 +42,14 @@ import {
   InvoiceItem,
   InvoiceLogAction,
   InvoiceLogRecord,
+  InvoicePaymentStatus,
   ProformaInvoiceData,
   SavedInvoiceDraft,
 } from './types/invoice';
 import { calculateInvoiceTotals, formatTodayCityDate } from './utils/formatters';
 import { downloadProformaInvoicePdf } from './utils/generatePdf';
 
-type ActiveTab = 'editor' | 'logs' | 'banks' | 'drafts';
+type ActiveTab = 'editor' | 'logs' | 'sales' | 'banks' | 'drafts';
 type MobilePane = 'edit' | 'preview';
 
 const STORAGE_KEYS = {
@@ -75,6 +80,12 @@ function normalizeLogoUrl(url?: string): string {
   return url === LEGACY_EXINDO_LOGO ? NEW_EXINDO_LOGO : url;
 }
 
+const PAYMENT_STATUS_NOTICE: Record<InvoicePaymentStatus, string> = {
+  paid: 'Lunas (masuk ke data penjualan sales)',
+  pending: 'Pending (menunggu pembayaran)',
+  cancelled: 'Cancel (dibatalkan)',
+};
+
 export default function App() {
   const [activeTab, setActiveTab] = useState<ActiveTab>('editor');
   const [mobilePane, setMobilePane] = useState<MobilePane>('edit');
@@ -90,6 +101,8 @@ export default function App() {
   const [localLogs, setLocalLogs] = useState<InvoiceLogRecord[]>(() =>
     loadFromStorage<InvoiceLogRecord[]>(STORAGE_KEYS.localLogs, []).map((l) => ({
       ...l,
+      salesName: l.salesName ?? l.invoiceSnapshot?.salesName ?? '',
+      paymentStatus: l.paymentStatus ?? 'pending',
       storageSource: 'local' as const,
     }))
   );
@@ -119,6 +132,10 @@ export default function App() {
     return {
       ...loaded,
       cityDate: formatTodayCityDate(loaded.cityDate),
+      salesName:
+        loaded.salesName !== undefined ? loaded.salesName : SALES_REP_OPTIONS[0],
+      showBestRegards:
+        loaded.showBestRegards !== undefined ? loaded.showBestRegards : true,
     };
   });
   const [localBanks, setLocalBanks] = useState<BankAccount[]>(() =>
@@ -232,6 +249,7 @@ export default function App() {
           const fullInvoice: ProformaInvoiceData = {
             ...DEFAULT_INVOICE_DATA,
             ...log.invoiceSnapshot,
+            salesName: log.salesName || log.invoiceSnapshot.salesName || '',
             items: log.localItems || [],
           };
           await createInvoiceLog(
@@ -239,7 +257,8 @@ export default function App() {
             fullInvoice,
             log.companySnapshot,
             log.footerSnapshot,
-            log.actionType
+            log.actionType,
+            log.paymentStatus || 'pending'
           );
           migrated += 1;
         } catch {
@@ -282,6 +301,7 @@ export default function App() {
     const { items, ...restSnapshot } = JSON.parse(
       JSON.stringify(invoice)
     ) as ProformaInvoiceData;
+    const cleanedSales = (invoice.salesName || '').trim();
     return {
       id: `local_log_${now}_${Math.random().toString(36).slice(2, 6)}`,
       ownerId: 'shared_team',
@@ -289,6 +309,8 @@ export default function App() {
       ownerName: adminName.trim() || 'Tim Admin',
       actionType,
       status: 'active',
+      salesName: cleanedSales,
+      paymentStatus: 'pending',
       createdAtMs: now,
       updatedAtMs: now,
       itemCount: items.length,
@@ -317,7 +339,8 @@ export default function App() {
         invoice,
         company,
         footer,
-        actionType
+        actionType,
+        'pending'
       );
       return 'firebase';
     } catch {
@@ -336,6 +359,7 @@ export default function App() {
         const fullInvoice: ProformaInvoiceData = {
           ...DEFAULT_INVOICE_DATA,
           ...log.invoiceSnapshot,
+          salesName: log.salesName || log.invoiceSnapshot.salesName || '',
           items: log.localItems || [],
         };
         await createInvoiceLog(
@@ -343,7 +367,8 @@ export default function App() {
           fullInvoice,
           log.companySnapshot,
           log.footerSnapshot,
-          log.actionType
+          log.actionType,
+          log.paymentStatus || 'pending'
         );
         syncedCount += 1;
       } catch {
@@ -358,15 +383,58 @@ export default function App() {
     }
   };
 
+  const handleUpdatePaymentStatus = async (
+    log: InvoiceLogRecord,
+    nextStatus: InvoicePaymentStatus
+  ) => {
+    if (log.storageSource === 'local') {
+      setLocalLogs((prev) =>
+        prev.map((item) =>
+          item.id === log.id
+            ? { ...item, paymentStatus: nextStatus, updatedAtMs: Date.now() }
+            : item
+        )
+      );
+      showNotice(`Status diubah ke ${PAYMENT_STATUS_NOTICE[nextStatus]}.`);
+      return;
+    }
+
+    await updateInvoicePaymentStatus(log.id, nextStatus);
+    showNotice(`Status invoice diubah ke ${PAYMENT_STATUS_NOTICE[nextStatus]}.`);
+  };
+
+  const handleUpdateSalesName = async (log: InvoiceLogRecord, nextSalesName: string) => {
+    if (log.storageSource === 'local') {
+      setLocalLogs((prev) =>
+        prev.map((item) =>
+          item.id === log.id
+            ? {
+                ...item,
+                salesName: nextSalesName,
+                invoiceSnapshot: { ...item.invoiceSnapshot, salesName: nextSalesName },
+                updatedAtMs: Date.now(),
+              }
+            : item
+        )
+      );
+      showNotice(`Sales invoice ditetapkan ke ${nextSalesName}.`);
+      return;
+    }
+
+    await updateInvoiceSalesName(log.id, nextSalesName);
+    showNotice(`Sales invoice ditetapkan ke ${nextSalesName}.`);
+  };
+
   const handleDownloadPdf = async () => {
     if (isExporting) return;
     setIsExporting(true);
     try {
       const filename = await downloadProformaInvoicePdf(invoice, company, footer);
       const savedTo = await recordLogShared('pdf_export');
+      const salesInfo = invoice.salesName ? ` (Sales: ${invoice.salesName})` : '';
       showNotice(
         savedTo === 'firebase'
-          ? `PDF diunduh & tercatat ke Log Bersama Firebase: ${filename}`
+          ? `PDF diunduh & tercatat ke Log Firebase${salesInfo}: ${filename}`
           : `PDF diunduh & disimpan sementara di browser: ${filename}`
       );
     } catch {
@@ -383,9 +451,10 @@ export default function App() {
 
   const handleSaveToCloudLog = async () => {
     const savedTo = await recordLogShared('manual_save');
+    const salesInfo = invoice.salesName ? ` untuk sales ${invoice.salesName}` : '';
     showNotice(
       savedTo === 'firebase'
-        ? 'Proforma Invoice berhasil dicatat ke Log Bersama Firebase.'
+        ? `Proforma Invoice berhasil dicatat ke Log Firebase${salesInfo} (Status: Pending).`
         : 'Koneksi sedang terganggu; invoice disimpan sementara di browser.'
     );
   };
@@ -454,6 +523,60 @@ export default function App() {
     showNotice(`Rekening aktif diganti ke ${bank.bankShortName} (${bank.accountNumber}).`);
   };
 
+  const handleFetchLogItems = async (log: InvoiceLogRecord): Promise<InvoiceItem[]> => {
+    if (log.storageSource === 'local') {
+      return log.localItems || [];
+    }
+    return fetchInvoiceLogItems(log.id);
+  };
+
+  const handleLoadLogToEditor = (
+    restoredInvoice: ProformaInvoiceData,
+    restoredCompany: CompanyProfile,
+    restoredFooter: DocumentFooter
+  ) => {
+    setInvoice({ ...DEFAULT_INVOICE_DATA, ...restoredInvoice });
+    setCompany((prev) => ({
+      ...DEFAULT_COMPANY_PROFILE,
+      ...restoredCompany,
+      logoDataUrl: normalizeLogoUrl(restoredCompany.logoDataUrl || prev.logoDataUrl),
+    }));
+    setFooter({ ...DEFAULT_DOCUMENT_FOOTER, ...restoredFooter });
+    setActiveTab('editor');
+    showNotice('Data Proforma Invoice dari log dimuat ke editor.');
+  };
+
+  const handleDownloadLogPdf = async (log: InvoiceLogRecord, items: InvoiceItem[]) => {
+    const fullInvoice: ProformaInvoiceData = {
+      ...DEFAULT_INVOICE_DATA,
+      ...log.invoiceSnapshot,
+      salesName: log.salesName,
+      showBestRegards: Boolean(log.salesName),
+      items,
+    };
+    const filename = await downloadProformaInvoicePdf(
+      fullInvoice,
+      log.companySnapshot,
+      log.footerSnapshot
+    );
+    if (log.storageSource === 'local') {
+      setLocalLogs((prev) =>
+        prev.map((item) =>
+          item.id === log.id
+            ? { ...item, actionType: 'pdf_export', updatedAtMs: Date.now() }
+            : item
+        )
+      );
+    } else if (log.status !== 'archived') {
+      try {
+        await updateInvoiceLogAction(log.id, 'pdf_export');
+      } catch {
+        // Non-fatal
+      }
+    }
+    showNotice(`PDF diunduh dari log: ${filename}`);
+  };
+
   return (
     <div className="min-h-screen flex flex-col bg-[#F4F5F7] text-[#0F172A]">
       {/* Top Bar Contract: 3 zones */}
@@ -484,15 +607,24 @@ export default function App() {
           <button
             type="button"
             onClick={() => setActiveTab('logs')}
-            className={`py-1 border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer inline-flex items-center gap-1.5 ${
+            className={`py-1 border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               activeTab === 'logs'
                 ? 'border-[#1D4ED8] text-slate-900'
                 : 'border-transparent text-slate-600 hover:text-slate-900'
             }`}
           >
-            <span>
-              Log Invoice ({combinedLogs.filter((l) => l.status !== 'archived').length})
-            </span>
+            Log Invoice ({combinedLogs.filter((l) => l.status !== 'archived').length})
+          </button>
+          <button
+            type="button"
+            onClick={() => setActiveTab('sales')}
+            className={`py-1 border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              activeTab === 'sales'
+                ? 'border-[#1D4ED8] text-slate-900'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Performa Sales
           </button>
           <button
             type="button"
@@ -676,51 +808,11 @@ export default function App() {
             logsError={logsError}
             onSyncLocalLogs={handleSyncLocalLogsToFirebase}
             onSaveCurrentToLog={handleSaveToCloudLog}
-            onFetchLogItems={async (log) => {
-              if (log.storageSource === 'local') {
-                return log.localItems || [];
-              }
-              return fetchInvoiceLogItems(log.id);
-            }}
-            onLoadLogToEditor={(restoredInvoice, restoredCompany, restoredFooter) => {
-              setInvoice({ ...DEFAULT_INVOICE_DATA, ...restoredInvoice });
-              setCompany((prev) => ({
-                ...DEFAULT_COMPANY_PROFILE,
-                ...restoredCompany,
-                logoDataUrl: normalizeLogoUrl(restoredCompany.logoDataUrl || prev.logoDataUrl),
-              }));
-              setFooter({ ...DEFAULT_DOCUMENT_FOOTER, ...restoredFooter });
-              setActiveTab('editor');
-              showNotice('Data Proforma Invoice dari log dimuat ke editor.');
-            }}
-            onDownloadLogPdf={async (log, items: InvoiceItem[]) => {
-              const fullInvoice: ProformaInvoiceData = {
-                ...DEFAULT_INVOICE_DATA,
-                ...log.invoiceSnapshot,
-                items,
-              };
-              const filename = await downloadProformaInvoicePdf(
-                fullInvoice,
-                log.companySnapshot,
-                log.footerSnapshot
-              );
-              if (log.storageSource === 'local') {
-                setLocalLogs((prev) =>
-                  prev.map((item) =>
-                    item.id === log.id
-                      ? { ...item, actionType: 'pdf_export', updatedAtMs: Date.now() }
-                      : item
-                  )
-                );
-              } else if (log.status !== 'archived') {
-                try {
-                  await updateInvoiceLogAction(log.id, 'pdf_export');
-                } catch {
-                  // Non-fatal
-                }
-              }
-              showNotice(`PDF diunduh dari log: ${filename}`);
-            }}
+            onUpdatePaymentStatus={handleUpdatePaymentStatus}
+            onUpdateSalesName={handleUpdateSalesName}
+            onFetchLogItems={handleFetchLogItems}
+            onLoadLogToEditor={handleLoadLogToEditor}
+            onDownloadLogPdf={handleDownloadLogPdf}
             onArchiveLog={async (log) => {
               if (log.storageSource === 'local') {
                 setLocalLogs((prev) =>
@@ -744,6 +836,20 @@ export default function App() {
               await deleteInvoiceLog(log.id);
               showNotice('Log dihapus permanen dari database bersama Firebase.');
             }}
+          />
+        </main>
+      )}
+
+      {activeTab === 'sales' && (
+        <main className="flex-1">
+          <SalesPerformanceView
+            logs={combinedLogs}
+            loadingLogs={loadingLogs}
+            onUpdatePaymentStatus={handleUpdatePaymentStatus}
+            onUpdateSalesName={handleUpdateSalesName}
+            onFetchLogItems={handleFetchLogItems}
+            onLoadLogToEditor={handleLoadLogToEditor}
+            onDownloadLogPdf={handleDownloadLogPdf}
           />
         </main>
       )}

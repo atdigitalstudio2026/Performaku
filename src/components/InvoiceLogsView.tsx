@@ -12,12 +12,14 @@ import {
   User as UserIcon,
   X,
 } from 'lucide-react';
+import { SALES_REP_OPTIONS } from '../data/defaultInvoice';
 import {
   CompanyProfile,
   DocumentFooter,
   InvoiceItem,
   InvoiceLogAction,
   InvoiceLogRecord,
+  InvoicePaymentStatus,
   ProformaInvoiceData,
 } from '../types/invoice';
 import { formatAmount, formatWeight } from '../utils/formatters';
@@ -32,6 +34,11 @@ interface InvoiceLogsViewProps {
   logsError: string;
   onSyncLocalLogs: () => Promise<void>;
   onSaveCurrentToLog: () => Promise<void>;
+  onUpdatePaymentStatus: (
+    log: InvoiceLogRecord,
+    nextStatus: InvoicePaymentStatus
+  ) => Promise<void>;
+  onUpdateSalesName: (log: InvoiceLogRecord, nextSalesName: string) => Promise<void>;
   onFetchLogItems: (log: InvoiceLogRecord) => Promise<InvoiceItem[]>;
   onLoadLogToEditor: (
     invoice: ProformaInvoiceData,
@@ -53,6 +60,12 @@ const ACTION_LABELS: Record<InvoiceLogAction, string> = {
   restored: 'Dibuka Ulang',
 };
 
+const PAYMENT_SELECT_CLASSES: Record<InvoicePaymentStatus, string> = {
+  paid: 'border-emerald-300 bg-emerald-50 text-emerald-800',
+  pending: 'border-amber-300 bg-amber-50 text-amber-800',
+  cancelled: 'border-red-200 bg-red-50 text-red-700',
+};
+
 export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
   adminName,
   onChangeAdminName,
@@ -62,6 +75,8 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
   logsError,
   onSyncLocalLogs,
   onSaveCurrentToLog,
+  onUpdatePaymentStatus,
+  onUpdateSalesName,
   onFetchLogItems,
   onLoadLogToEditor,
   onDownloadLogPdf,
@@ -70,6 +85,8 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | InvoiceLogAction | 'archived'>('all');
+  const [salesFilter, setSalesFilter] = useState<string>('all');
+  const [paymentFilter, setPaymentFilter] = useState<'all' | InvoicePaymentStatus>('all');
   const [busyLogId, setBusyLogId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [isSavingCurrent, setIsSavingCurrent] = useState(false);
@@ -91,22 +108,34 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
         if (log.status === 'archived') return false;
       }
 
+      if (salesFilter !== 'all') {
+        const currentSales = log.salesName?.trim() || '__unassigned__';
+        if (currentSales !== salesFilter) return false;
+      }
+
+      if (paymentFilter !== 'all') {
+        if (log.paymentStatus !== paymentFilter) return false;
+      }
+
       if (!q) return true;
       const hay = [
         log.invoiceSnapshot.buyerName,
         log.invoiceSnapshot.invoiceNumber,
         log.sellerName,
         log.invoiceSnapshot.cityDate,
+        log.salesName,
         log.ownerName,
       ]
         .join(' ')
         .toLowerCase();
       return hay.includes(q);
     });
-  }, [logs, searchQuery, filterMode]);
+  }, [logs, searchQuery, filterMode, salesFilter, paymentFilter]);
 
   const buildFullInvoice = (log: InvoiceLogRecord, items: InvoiceItem[]): ProformaInvoiceData => ({
     ...log.invoiceSnapshot,
+    salesName: log.salesName,
+    showBestRegards: Boolean(log.salesName),
     items,
   });
 
@@ -167,7 +196,8 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
         <div>
           <h1 className="text-xl font-bold text-slate-900">Log Proforma Invoice</h1>
           <p className="text-sm text-slate-600 mt-1">
-            Data terpusat di Firebase untuk seluruh tim admin. Setiap Proforma Invoice yang diunduh PDF, dicetak, atau disimpan tercatat otomatis dan bisa dilihat bersama.
+            Data terpusat di Firebase untuk seluruh tim admin. Perbarui status pembayaran menjadi{' '}
+            <strong className="font-semibold text-emerald-700">Lunas</strong> agar transaksi masuk ke data penjualan sales.
           </p>
         </div>
 
@@ -203,21 +233,21 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
         </div>
       )}
 
-      {/* Filter, Admin Name & Search Bar */}
-      <div className="bg-white border border-slate-200 rounded-lg p-3.5 mb-4 flex flex-col lg:flex-row lg:items-center justify-between gap-3">
-        <div className="relative flex-1">
-          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="Cari nama pembeli, nomor invoice, penjual, atau nama admin..."
-            className="w-full pl-9 pr-3 py-2 text-sm rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
-          />
-        </div>
+      {/* Filter, Sales, Status, Admin Name & Search Bar */}
+      <div className="bg-white border border-slate-200 rounded-lg p-3.5 mb-4 space-y-2.5">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
+          <div className="relative flex-1">
+            <Search className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+            <input
+              type="text"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              placeholder="Cari nama pembeli, sales, nomor invoice, penjual, atau admin..."
+              className="w-full pl-9 pr-3 py-2 text-sm rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+            />
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2.5 shrink-0">
-          <div className="relative">
+          <div className="relative shrink-0">
             <UserIcon className="w-3.5 h-3.5 text-slate-400 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="text"
@@ -225,23 +255,52 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
               onChange={(e) => onChangeAdminName(e.target.value)}
               placeholder="Nama Admin (opsional)"
               maxLength={80}
-              className="w-44 pl-8 pr-2.5 py-2 text-xs rounded-md border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+              className="w-full lg:w-44 pl-8 pr-2.5 py-2 text-xs rounded-md border border-slate-300 bg-white text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
             />
           </div>
+        </div>
 
-          <select
-            value={filterMode}
-            onChange={(e) =>
-              setFilterMode(e.target.value as 'all' | InvoiceLogAction | 'archived')
-            }
-            className="px-3 py-2 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
-          >
-            <option value="all">Semua Log Aktif</option>
-            <option value="pdf_export">Aktivitas: Unduh PDF</option>
-            <option value="manual_save">Aktivitas: Simpan Log</option>
-            <option value="print">Aktivitas: Cetak</option>
-            <option value="archived">Arsip Log</option>
-          </select>
+        <div className="flex flex-wrap items-center justify-between gap-2.5 pt-2 border-t border-slate-100">
+          <div className="flex flex-wrap items-center gap-2">
+            <select
+              value={salesFilter}
+              onChange={(e) => setSalesFilter(e.target.value)}
+              className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+            >
+              <option value="all">Semua Sales</option>
+              {SALES_REP_OPTIONS.map((rep) => (
+                <option key={rep} value={rep}>
+                  Sales: {rep}
+                </option>
+              ))}
+              <option value="__unassigned__">Sales: Belum Ditentukan</option>
+            </select>
+
+            <select
+              value={paymentFilter}
+              onChange={(e) => setPaymentFilter(e.target.value as 'all' | InvoicePaymentStatus)}
+              className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+            >
+              <option value="all">Semua Status Bayar</option>
+              <option value="pending">Status: Pending</option>
+              <option value="paid">Status: Lunas</option>
+              <option value="cancelled">Status: Cancel</option>
+            </select>
+
+            <select
+              value={filterMode}
+              onChange={(e) =>
+                setFilterMode(e.target.value as 'all' | InvoiceLogAction | 'archived')
+              }
+              className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+            >
+              <option value="all">Semua Aktivitas</option>
+              <option value="pdf_export">Aktivitas: Unduh PDF</option>
+              <option value="manual_save">Aktivitas: Simpan Log</option>
+              <option value="print">Aktivitas: Cetak</option>
+              <option value="archived">Arsip Log</option>
+            </select>
+          </div>
 
           <span className="text-xs text-slate-500 font-mono tabular-nums whitespace-nowrap">
             {filteredLogs.length} catatan
@@ -269,7 +328,7 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
             <p className="text-xs text-slate-500 mt-1">
               {logs.length === 0
                 ? 'Saat admin mengunduh PDF, mencetak, atau menekan "Catat Invoice Aktif ke Log", datanya otomatis tersimpan dan tampil untuk semua admin di sini.'
-                : 'Coba ubah kata kunci pencarian atau filter aktivitas.'}
+                : 'Coba ubah kata kunci pencarian atau filter sales / status pembayaran.'}
             </p>
           </div>
         ) : (
@@ -278,6 +337,7 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
               const isBusy = busyLogId === log.id;
               const isConfirmingDelete = confirmDeleteId === log.id;
               const isLocal = log.storageSource === 'local';
+              const isArchived = log.status === 'archived';
               const dateStr = new Date(log.createdAtMs).toLocaleString('id-ID', {
                 day: '2-digit',
                 month: 'short',
@@ -292,27 +352,29 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
                   className="p-4 flex flex-col lg:flex-row lg:items-center justify-between gap-4 hover:bg-slate-50/70 transition-colors"
                 >
                   <div className="min-w-0 flex-1 space-y-1">
-                    <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
                       <span className="text-sm font-semibold text-slate-900">
                         {log.invoiceSnapshot.buyerName || 'Tanpa Nama Pembeli'}
                       </span>
                       {log.invoiceSnapshot.showInvoiceNumber &&
                         log.invoiceSnapshot.invoiceNumber.trim() && (
-                          <span className="text-xs font-mono text-slate-700 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
-                            {log.invoiceSnapshot.invoiceNumber}
+                          <span className="text-xs font-mono text-slate-600">
+                            · {log.invoiceSnapshot.invoiceNumber}
                           </span>
                         )}
                       <span className="text-xs text-slate-500">
                         · {ACTION_LABELS[log.actionType] || log.actionType}
                       </span>
-                      {log.status === 'archived' && (
-                        <span className="text-[11px] font-medium text-slate-500 border border-slate-300 px-1.5 py-0.5 rounded">
-                          Diarsipkan
-                        </span>
+                      {isArchived && (
+                        <span className="text-xs font-medium text-slate-500">· Diarsipkan</span>
                       )}
                     </div>
 
                     <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-0.5 tabular-nums">
+                      <span className="font-semibold text-[#1D4ED8]">
+                        Sales: {log.salesName || 'Belum Ditentukan'}
+                      </span>
+                      <span className="text-slate-300">·</span>
                       <span className="font-medium text-slate-800">{log.sellerName || '-'}</span>
                       <span className="text-slate-300">·</span>
                       <span>{log.invoiceSnapshot.cityDate || '-'}</span>
@@ -322,17 +384,17 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
                       <span>
                         {formatWeight(log.totalWeightKg, log.invoiceSnapshot.numberFormat)} kg
                       </span>
-                      <span className="text-slate-300">·</span>
-                      <span>
-                        Rek. {log.invoiceSnapshot.bankAccount.bankShortName}{' '}
-                        {log.invoiceSnapshot.bankAccount.accountNumber}
-                      </span>
                     </div>
 
                     <div className="text-[11px] text-slate-500 flex flex-wrap items-center gap-x-2 gap-y-0.5">
                       <span className="tabular-nums">Tercatat {dateStr}</span>
                       <span className="text-slate-300">·</span>
-                      <span>Oleh {log.ownerName || 'Tim Admin'}</span>
+                      <span>Admin: {log.ownerName || 'Tim Admin'}</span>
+                      <span className="text-slate-300">·</span>
+                      <span>
+                        Rek. {log.invoiceSnapshot.bankAccount.bankShortName}{' '}
+                        {log.invoiceSnapshot.bankAccount.accountNumber}
+                      </span>
                       {isLocal && (
                         <>
                           <span className="text-slate-300">·</span>
@@ -342,8 +404,8 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Financial summary & Actions */}
-                  <div className="flex flex-col sm:flex-row sm:items-center gap-4 shrink-0">
+                  {/* Financial summary, Status Switcher & Actions */}
+                  <div className="flex flex-col sm:flex-row sm:items-center gap-3.5 shrink-0">
                     <div className="text-left lg:text-right tabular-nums">
                       {log.shippingCost > 0 && (
                         <div className="text-[11px] text-slate-500 font-mono">
@@ -360,13 +422,68 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
                       <div className="text-[11px] text-slate-500">
                         {log.appliedDeposit > 0 ? 'Sisa Pembayaran' : 'Total Tagihan'}
                       </div>
-                      <div className="text-sm font-bold text-slate-900 font-mono">
+                      <div
+                        className={`text-sm font-bold font-mono ${
+                          log.paymentStatus === 'cancelled'
+                            ? 'text-slate-400 line-through'
+                            : 'text-slate-900'
+                        }`}
+                      >
                         {log.invoiceSnapshot.currency}{' '}
                         {formatAmount(log.netPayable, log.invoiceSnapshot.numberFormat)}
                       </div>
                     </div>
 
                     <div className="flex flex-wrap items-center gap-1.5">
+                      {/* Quick Sales Assignment if unassigned */}
+                      {!isArchived && !log.salesName && (
+                        <select
+                          aria-label="Pilih Sales"
+                          value=""
+                          disabled={isBusy}
+                          onChange={async (e) => {
+                            if (!e.target.value) return;
+                            setBusyLogId(log.id);
+                            try {
+                              await onUpdateSalesName(log, e.target.value);
+                            } finally {
+                              setBusyLogId(null);
+                            }
+                          }}
+                          className="px-2 py-1.5 text-xs rounded-md border border-slate-300 bg-white text-slate-700 cursor-pointer"
+                        >
+                          <option value="">Set Sales...</option>
+                          {SALES_REP_OPTIONS.map((rep) => (
+                            <option key={rep} value={rep}>
+                              {rep}
+                            </option>
+                          ))}
+                        </select>
+                      )}
+
+                      {/* Status Pembayaran Dropdown */}
+                      <select
+                        aria-label="Status Pembayaran"
+                        value={log.paymentStatus}
+                        disabled={isBusy || isArchived}
+                        onChange={async (e) => {
+                          const next = e.target.value as InvoicePaymentStatus;
+                          setBusyLogId(log.id);
+                          try {
+                            await onUpdatePaymentStatus(log, next);
+                          } finally {
+                            setBusyLogId(null);
+                          }
+                        }}
+                        className={`px-2.5 py-1.5 text-xs font-semibold rounded-md border transition-colors cursor-pointer disabled:opacity-60 focus:outline-none ${
+                          PAYMENT_SELECT_CLASSES[log.paymentStatus]
+                        }`}
+                      >
+                        <option value="pending">Pending</option>
+                        <option value="paid">Lunas</option>
+                        <option value="cancelled">Cancel</option>
+                      </select>
+
                       <button
                         type="button"
                         disabled={isBusy}
@@ -397,7 +514,7 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
                         PDF
                       </button>
 
-                      {log.status !== 'archived' && (
+                      {!isArchived && (
                         <button
                           type="button"
                           disabled={isBusy}
@@ -464,6 +581,7 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
                 Pratinjau Log: {previewState.log.invoiceSnapshot.buyerName || 'Proforma Invoice'}
               </div>
               <div className="text-xs text-slate-500">
+                Sales: {previewState.log.salesName || 'Belum Ditentukan'} ·{' '}
                 {previewState.log.invoiceSnapshot.invoiceNumber || 'Tanpa Nomor'} ·{' '}
                 {previewState.log.invoiceSnapshot.cityDate}
               </div>

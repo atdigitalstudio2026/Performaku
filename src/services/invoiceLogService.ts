@@ -22,6 +22,7 @@ import {
   InvoiceLogAction,
   InvoiceLogRecord,
   InvoiceLogStatus,
+  InvoicePaymentStatus,
   PpnMode,
   PriceBasis,
   ProformaInvoiceData,
@@ -99,7 +100,8 @@ export async function createInvoiceLog(
   invoice: ProformaInvoiceData,
   company: CompanyProfile,
   footer: DocumentFooter,
-  actionType: InvoiceLogAction
+  actionType: InvoiceLogAction,
+  initialPaymentStatus: InvoicePaymentStatus = 'pending'
 ): Promise<string> {
   const logId = `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const path = `invoiceLogs/${logId}`;
@@ -114,11 +116,16 @@ export async function createInvoiceLog(
       ? invoice.ppnMode
       : 'include';
   const safeNumberFormat: 'comma' | 'dot' = invoice.numberFormat === 'dot' ? 'dot' : 'comma';
+  const safePaymentStatus: InvoicePaymentStatus =
+    initialPaymentStatus === 'paid' || initialPaymentStatus === 'cancelled'
+      ? initialPaymentStatus
+      : 'pending';
 
   const sanitizedCompany = sanitizeCompanyMap(company);
   const sanitizedFooter = sanitizeFooterMap(footer);
   const sanitizedBank = sanitizeBankMap(invoice.bankAccount);
   const cleanedAdminName = safeStr(adminName.trim() || 'Tim Admin', 120, 'Tim Admin');
+  const cleanedSalesName = safeStr((invoice.salesName || '').trim(), 120, '');
 
   try {
     const batch = writeBatch(db);
@@ -130,6 +137,8 @@ export async function createInvoiceLog(
       ownerName: cleanedAdminName,
       actionType,
       status: 'active',
+      salesName: cleanedSalesName,
+      paymentStatus: safePaymentStatus,
       title:
         safeStr(invoice.title || 'PROFORMA INVOICE', 100, 'PROFORMA INVOICE') ||
         'PROFORMA INVOICE',
@@ -212,6 +221,13 @@ export function subscribeInvoiceLogs(
     (snapshot) => {
       const records: InvoiceLogRecord[] = snapshot.docs.map((docSnap) => {
         const d = docSnap.data();
+        const rawPaymentStatus = String(d.paymentStatus || 'pending');
+        const paymentStatus: InvoicePaymentStatus =
+          rawPaymentStatus === 'paid' || rawPaymentStatus === 'cancelled'
+            ? rawPaymentStatus
+            : 'pending';
+        const salesName = String(d.salesName || '');
+
         return {
           id: docSnap.id,
           ownerId: String(d.ownerId || SHARED_TEAM_OWNER_ID),
@@ -219,6 +235,8 @@ export function subscribeInvoiceLogs(
           ownerName: String(d.ownerName || 'Tim Admin'),
           actionType: (d.actionType as InvoiceLogAction) || 'manual_save',
           status: (d.status as InvoiceLogStatus) || 'active',
+          salesName,
+          paymentStatus,
           createdAtMs: timestampToMs(d.createdAt),
           updatedAtMs: timestampToMs(d.updatedAt),
           itemCount: Number(d.itemCount) || 0,
@@ -259,6 +277,8 @@ export function subscribeInvoiceLogs(
             },
             additionalNote: String(d.additionalNote || ''),
             highlightTransferTotal: Boolean(d.highlightTransferTotal),
+            salesName,
+            showBestRegards: Boolean(salesName),
             showSignature: Boolean(d.showSignature),
             signatureName: String(d.signatureName || ''),
             signatureTitle: String(d.signatureTitle || ''),
@@ -340,6 +360,36 @@ export async function updateInvoiceLogAction(
   try {
     await updateDoc(doc(db, 'invoiceLogs', logId), {
       actionType,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updateInvoicePaymentStatus(
+  logId: string,
+  paymentStatus: InvoicePaymentStatus
+): Promise<void> {
+  const path = `invoiceLogs/${logId}`;
+  try {
+    await updateDoc(doc(db, 'invoiceLogs', logId), {
+      paymentStatus,
+      updatedAt: serverTimestamp(),
+    });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updateInvoiceSalesName(
+  logId: string,
+  salesName: string
+): Promise<void> {
+  const path = `invoiceLogs/${logId}`;
+  try {
+    await updateDoc(doc(db, 'invoiceLogs', logId), {
+      salesName: safeStr(salesName.trim(), 120, ''),
       updatedAt: serverTimestamp(),
     });
   } catch (error) {

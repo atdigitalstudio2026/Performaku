@@ -460,19 +460,32 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
           </div>
         </div>
 
-        {/* Tanda tangan opsional */}
-        {invoice.showSignature && (
-          <div className="mt-12 flex justify-end pr-4 text-[12px] text-slate-900">
-            <div className="w-48 text-center">
-              <div>Hormat kami,</div>
-              <div className="h-16" />
-              <div className="font-bold border-b border-slate-900 pb-0.5 inline-block min-w-[140px]">
-                {invoice.signatureName || 'Bagian Keuangan'}
+        {/* Best regards (kiri bawah) & Tanda tangan opsional (kanan bawah) */}
+        {((invoice.showBestRegards !== false && Boolean(invoice.salesName?.trim())) ||
+          invoice.showSignature) && (
+          <div className="mt-10 flex items-start justify-between gap-8 text-[12px] text-slate-900">
+            {invoice.showBestRegards !== false && invoice.salesName?.trim() ? (
+              <div className="text-left min-w-[160px]">
+                <div className="text-slate-700">Best regards,</div>
+                <div className="h-14" />
+                <div className="font-bold text-slate-900">{invoice.salesName.trim()}</div>
               </div>
-              {invoice.signatureTitle.trim() && (
-                <div className="text-[11px] text-slate-600 mt-1">{invoice.signatureTitle}</div>
-              )}
-            </div>
+            ) : (
+              <div />
+            )}
+
+            {invoice.showSignature && (
+              <div className="w-48 text-center pr-2">
+                <div>Hormat kami,</div>
+                <div className="h-14" />
+                <div className="font-bold border-b border-slate-900 pb-0.5 inline-block min-w-[140px]">
+                  {invoice.signatureName || 'Bagian Keuangan'}
+                </div>
+                {invoice.signatureTitle.trim() && (
+                  <div className="text-[11px] text-slate-600 mt-1">{invoice.signatureTitle}</div>
+                )}
+              </div>
+            )}
           </div>
         )}
         </div>

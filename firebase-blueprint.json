@@ -32,6 +32,16 @@
           "enum": ["active", "archived"],
           "description": "Status arsip log invoice."
         },
+        "salesName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Nama sales penanggung jawab Proforma Invoice."
+        },
+        "paymentStatus": {
+          "type": "string",
+          "enum": ["pending", "paid", "cancelled"],
+          "description": "Status pembayaran Proforma Invoice (hanya 'paid' yang masuk ke data penjualan sales)."
+        },
         "title": {
           "type": "string",
           "minLength": 1,
@@ -175,6 +185,8 @@
         "ownerName",
         "actionType",
         "status",
+        "salesName",
+        "paymentStatus",
         "title",
         "cityDate",
         "invoiceNumber",
