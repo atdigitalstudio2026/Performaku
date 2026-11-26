@@ -1,6 +1,8 @@
 import React, { useMemo, useState } from 'react';
 import {
+  AlertTriangle,
   Archive,
+  CalendarCheck2,
   Cloud,
   CloudUpload,
   Download,
@@ -27,6 +29,14 @@ import {
 } from '../types/invoice';
 import { exportAllInvoicesExcel, exportAllInvoicesPdf } from '../utils/exportReports';
 import { formatAmount, formatWeight } from '../utils/formatters';
+import {
+  FOLLOW_UP_WARNING_DAYS,
+  formatIsoDateId,
+  getEffectivePaymentDateIso,
+  getPendingAgeDays,
+  getPendingUrgency,
+  isFollowUpPendingLog,
+} from '../utils/paymentHelpers';
 import { InvoicePreview } from './InvoicePreview';
 
 interface InvoiceLogsViewProps {
@@ -42,6 +52,7 @@ interface InvoiceLogsViewProps {
     log: InvoiceLogRecord,
     nextStatus: InvoicePaymentStatus
   ) => Promise<void>;
+  onOpenPaymentModal: (log: InvoiceLogRecord, targetStatus: InvoicePaymentStatus) => void;
   onUpdateSalesName: (log: InvoiceLogRecord, nextSalesName: string) => Promise<void>;
   onFetchLogItems: (log: InvoiceLogRecord) => Promise<InvoiceItem[]>;
   onLoadLogToEditor: (
@@ -82,6 +93,7 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
   onSyncLocalLogs,
   onSaveCurrentToLog,
   onUpdatePaymentStatus,
+  onOpenPaymentModal,
   onUpdateSalesName,
   onFetchLogItems,
   onLoadLogToEditor,
@@ -94,7 +106,7 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [filterMode, setFilterMode] = useState<'all' | InvoiceLogAction | 'archived'>('all');
   const [salesFilter, setSalesFilter] = useState<string>('all');
-  const [paymentFilter, setPaymentFilter] = useState<'all' | InvoicePaymentStatus>('all');
+  const [paymentFilter, setPaymentFilter] = useState<'all' | 'followup' | InvoicePaymentStatus>('all');
   const [busyLogId, setBusyLogId] = useState<string | null>(null);
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
   const [isSavingCurrent, setIsSavingCurrent] = useState(false);
@@ -105,6 +117,11 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
     log: InvoiceLogRecord;
     items: InvoiceItem[];
   } | null>(null);
+
+  const followUpPendingCount = useMemo(
+    () => logs.filter((l) => isFollowUpPendingLog(l)).length,
+    [logs]
+  );
 
   const filteredLogs = useMemo(() => {
     const q = searchQuery.trim().toLowerCase();
@@ -122,7 +139,9 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
         if (currentSales !== salesFilter) return false;
       }
 
-      if (paymentFilter !== 'all') {
+      if (paymentFilter === 'followup') {
+        if (!isFollowUpPendingLog(log)) return false;
+      } else if (paymentFilter !== 'all') {
         if (log.paymentStatus !== paymentFilter) return false;
       }
 
@@ -134,6 +153,7 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
         log.invoiceSnapshot.cityDate,
         log.salesName,
         log.ownerName,
+        log.paymentNote,
       ]
         .join(' ')
         .toLowerCase();
@@ -227,7 +247,9 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
     }
     if (paymentFilter !== 'all') {
       const label =
-        paymentFilter === 'paid'
+        paymentFilter === 'followup'
+          ? `Perlu Follow-Up (≥ ${FOLLOW_UP_WARNING_DAYS} Hari)`
+          : paymentFilter === 'paid'
           ? 'Lunas'
           : paymentFilter === 'pending'
           ? 'Pending'
@@ -355,6 +377,35 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
         </div>
       )}
 
+      {/* Follow-Up Pending Alert Banner */}
+      {followUpPendingCount > 0 && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-lg p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 text-xs text-amber-900">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              Ada <strong>{followUpPendingCount} invoice Pending</strong> yang sudah melewati{' '}
+              {FOLLOW_UP_WARNING_DAYS} hari belum lunas. Segera kirim pengingat via tombol{' '}
+              <strong>WA</strong>.
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setPaymentFilter(paymentFilter === 'followup' ? 'all' : 'followup')
+            }
+            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+              paymentFilter === 'followup'
+                ? 'border-amber-400 bg-amber-600 text-white'
+                : 'border-amber-300 bg-white text-amber-900 hover:bg-amber-100'
+            }`}
+          >
+            {paymentFilter === 'followup'
+              ? 'Tampilkan Semua Status'
+              : `Lihat Perlu Follow-Up (${followUpPendingCount})`}
+          </button>
+        </div>
+      )}
+
       {/* Filter, Sales, Status, Admin Name & Search Bar */}
       <div className="bg-white border border-slate-200 rounded-lg p-3.5 mb-4 space-y-2.5">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-2.5">
@@ -364,7 +415,7 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="Cari nama pembeli, sales, nomor invoice, penjual, atau admin..."
+              placeholder="Cari nama pembeli, sales, nomor invoice, penjual, catatan bayar, atau admin..."
               className="w-full pl-9 pr-3 py-2 text-sm rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
             />
           </div>
@@ -400,10 +451,15 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
 
             <select
               value={paymentFilter}
-              onChange={(e) => setPaymentFilter(e.target.value as 'all' | InvoicePaymentStatus)}
+              onChange={(e) =>
+                setPaymentFilter(e.target.value as 'all' | 'followup' | InvoicePaymentStatus)
+              }
               className="px-2.5 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
             >
               <option value="all">Semua Status Bayar</option>
+              <option value="followup">
+                Perlu Follow-Up (≥ {FOLLOW_UP_WARNING_DAYS} Hari)
+              </option>
               <option value="pending">Status: Pending</option>
               <option value="paid">Status: Lunas</option>
               <option value="cancelled">Status: Cancel</option>
@@ -468,6 +524,16 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
                 minute: '2-digit',
               });
 
+              const pendingAgeDays =
+                !isArchived && log.paymentStatus === 'pending'
+                  ? getPendingAgeDays(log.createdAtMs)
+                  : 0;
+              const pendingUrgency = getPendingUrgency(pendingAgeDays);
+              const paidDateFormatted =
+                log.paymentStatus === 'paid'
+                  ? formatIsoDateId(getEffectivePaymentDateIso(log))
+                  : '';
+
               return (
                 <div
                   key={log.id}
@@ -487,6 +553,16 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
                       <span className="text-xs text-slate-500">
                         · {ACTION_LABELS[log.actionType] || log.actionType}
                       </span>
+                      {pendingUrgency === 'overdue' && (
+                        <span className="text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">
+                          Perlu Follow-Up ({pendingAgeDays} hari)
+                        </span>
+                      )}
+                      {pendingUrgency === 'warning' && (
+                        <span className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                          Pending {pendingAgeDays} hari
+                        </span>
+                      )}
                       {isArchived && (
                         <span className="text-xs font-medium text-slate-500">· Diarsipkan</span>
                       )}
@@ -524,6 +600,33 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
                         </>
                       )}
                     </div>
+
+                    {/* Payment Date & Transfer Note Strip */}
+                    {(paidDateFormatted || log.paymentNote) && (
+                      <div className="text-[11px] flex flex-wrap items-center gap-x-2 gap-y-0.5 pt-0.5">
+                        {paidDateFormatted && (
+                          <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+                            <CalendarCheck2 className="w-3 h-3" />
+                            Lunas: {paidDateFormatted}
+                          </span>
+                        )}
+                        {paidDateFormatted && log.paymentNote && (
+                          <span className="text-slate-300">·</span>
+                        )}
+                        {log.paymentNote && (
+                          <span className="text-slate-600">Catatan: {log.paymentNote}</span>
+                        )}
+                        {!isArchived && (
+                          <button
+                            type="button"
+                            onClick={() => onOpenPaymentModal(log, log.paymentStatus)}
+                            className="text-[#1D4ED8] hover:text-blue-800 font-medium cursor-pointer ml-1"
+                          >
+                            Edit Info Bayar
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
 
                   {/* Financial summary, Status Switcher & Actions */}
@@ -590,6 +693,10 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
                         disabled={isBusy || isArchived}
                         onChange={async (e) => {
                           const next = e.target.value as InvoicePaymentStatus;
+                          if (next === 'paid') {
+                            onOpenPaymentModal(log, 'paid');
+                            return;
+                          }
                           setBusyLogId(log.id);
                           try {
                             await onUpdatePaymentStatus(log, next);
@@ -605,6 +712,18 @@ export const InvoiceLogsView: React.FC<InvoiceLogsViewProps> = ({
                         <option value="paid">Lunas</option>
                         <option value="cancelled">Cancel</option>
                       </select>
+
+                      {!isArchived && !paidDateFormatted && !log.paymentNote && (
+                        <button
+                          type="button"
+                          disabled={isBusy}
+                          onClick={() => onOpenPaymentModal(log, log.paymentStatus)}
+                          title="Catat tanggal bayar atau catatan follow-up"
+                          className="p-1.5 text-slate-500 hover:text-slate-900 rounded border border-slate-200 bg-white hover:bg-slate-50 disabled:opacity-50 transition-colors cursor-pointer"
+                        >
+                          <CalendarCheck2 className="w-3.5 h-3.5" />
+                        </button>
+                      )}
 
                       <button
                         type="button"

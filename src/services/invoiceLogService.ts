@@ -36,6 +36,7 @@ import {
   parseSequenceFromInvoiceNumber,
   resolveCompanyCode,
 } from '../utils/invoiceNumbering';
+import { isValidIsoDate, toLocalDateIso } from '../utils/paymentHelpers';
 
 export const SHARED_TEAM_OWNER_ID = 'shared_team';
 
@@ -144,6 +145,7 @@ export async function createInvoiceLog(
   const sanitizedBank = sanitizeBankMap(invoice.bankAccount);
   const cleanedAdminName = safeStr(adminName.trim() || 'Tim Admin', 120, 'Tim Admin');
   const cleanedSalesName = safeStr((invoice.salesName || '').trim(), 120, '');
+  const initialPaidAtDate = safePaymentStatus === 'paid' ? toLocalDateIso() : '';
 
   try {
     const batch = writeBatch(db);
@@ -157,6 +159,8 @@ export async function createInvoiceLog(
       status: 'active',
       salesName: cleanedSalesName,
       paymentStatus: safePaymentStatus,
+      paidAtDate: initialPaidAtDate,
+      paymentNote: '',
       title:
         safeStr(invoice.title || 'PROFORMA INVOICE', 100, 'PROFORMA INVOICE') ||
         'PROFORMA INVOICE',
@@ -245,6 +249,9 @@ export function subscribeInvoiceLogs(
             ? rawPaymentStatus
             : 'pending';
         const salesName = String(d.salesName || '');
+        const rawPaidAtDate = String(d.paidAtDate || '');
+        const paidAtDate = isValidIsoDate(rawPaidAtDate) ? rawPaidAtDate : '';
+        const paymentNote = String(d.paymentNote || '');
 
         return {
           id: docSnap.id,
@@ -255,6 +262,8 @@ export function subscribeInvoiceLogs(
           status: (d.status as InvoiceLogStatus) || 'active',
           salesName,
           paymentStatus,
+          paidAtDate,
+          paymentNote,
           createdAtMs: timestampToMs(d.createdAt),
           updatedAtMs: timestampToMs(d.updatedAt),
           itemCount: Number(d.itemCount) || 0,
@@ -387,12 +396,47 @@ export async function updateInvoiceLogAction(
 
 export async function updateInvoicePaymentStatus(
   logId: string,
-  paymentStatus: InvoicePaymentStatus
-): Promise<void> {
+  paymentStatus: InvoicePaymentStatus,
+  options?: {
+    paidAtDate?: string;
+    paymentNote?: string;
+  }
+): Promise<{ paidAtDate: string; paymentNote: string }> {
   const path = `invoiceLogs/${logId}`;
+  const rawDate = (options?.paidAtDate || '').trim();
+  const nextPaidAtDate =
+    paymentStatus === 'paid'
+      ? isValidIsoDate(rawDate)
+        ? rawDate
+        : toLocalDateIso()
+      : '';
+  const nextPaymentNote = safeStr((options?.paymentNote || '').trim(), 300, '');
+
   try {
     await updateDoc(doc(db, 'invoiceLogs', logId), {
       paymentStatus,
+      paidAtDate: nextPaidAtDate,
+      paymentNote: nextPaymentNote,
+      updatedAt: serverTimestamp(),
+    });
+    return { paidAtDate: nextPaidAtDate, paymentNote: nextPaymentNote };
+  } catch (error) {
+    handleFirestoreError(error, OperationType.UPDATE, path);
+  }
+}
+
+export async function updateInvoicePaymentDetails(
+  logId: string,
+  paidAtDate: string,
+  paymentNote: string
+): Promise<void> {
+  const path = `invoiceLogs/${logId}`;
+  const safeDate = isValidIsoDate(paidAtDate) ? paidAtDate.trim() : '';
+  const safeNote = safeStr((paymentNote || '').trim(), 300, '');
+  try {
+    await updateDoc(doc(db, 'invoiceLogs', logId), {
+      paidAtDate: safeDate,
+      paymentNote: safeNote,
       updatedAt: serverTimestamp(),
     });
   } catch (error) {

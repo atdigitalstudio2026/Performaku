@@ -1,5 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import {
+  AlertTriangle,
+  CalendarCheck2,
   Download,
   Eye,
   FileSpreadsheet,
@@ -22,9 +24,19 @@ import {
   exportSalesPerformancePdf,
 } from '../utils/exportReports';
 import { formatAmount, formatWeight } from '../utils/formatters';
+import {
+  FOLLOW_UP_WARNING_DAYS,
+  formatIsoDateId,
+  getEffectivePaymentDateIso,
+  getEffectivePaymentDateMs,
+  getPendingAgeDays,
+  getPendingUrgency,
+  isFollowUpPendingLog,
+} from '../utils/paymentHelpers';
 import { InvoicePreview } from './InvoicePreview';
 
 type PeriodPreset = 'today' | 'week' | 'month' | 'year' | 'all' | 'custom';
+type DateFilterBasis = 'created' | 'paid';
 
 interface SalesPerformanceViewProps {
   logs: InvoiceLogRecord[];
@@ -33,6 +45,7 @@ interface SalesPerformanceViewProps {
     log: InvoiceLogRecord,
     nextStatus: InvoicePaymentStatus
   ) => Promise<void>;
+  onOpenPaymentModal: (log: InvoiceLogRecord, targetStatus: InvoicePaymentStatus) => void;
   onUpdateSalesName: (log: InvoiceLogRecord, nextSalesName: string) => Promise<void>;
   onFetchLogItems: (log: InvoiceLogRecord) => Promise<InvoiceItem[]>;
   onLoadLogToEditor: (
@@ -119,6 +132,7 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
   logs,
   loadingLogs,
   onUpdatePaymentStatus,
+  onOpenPaymentModal,
   onUpdateSalesName,
   onFetchLogItems,
   onLoadLogToEditor,
@@ -128,10 +142,13 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
 }) => {
   const initialRange = getPresetRange('month');
   const [periodPreset, setPeriodPreset] = useState<PeriodPreset>('month');
+  const [dateBasis, setDateBasis] = useState<DateFilterBasis>('created');
   const [startDate, setStartDate] = useState<string>(initialRange.start);
   const [endDate, setEndDate] = useState<string>(initialRange.end);
   const [selectedSales, setSelectedSales] = useState<string>('all');
-  const [ledgerStatusFilter, setLedgerStatusFilter] = useState<'all' | InvoicePaymentStatus>('all');
+  const [ledgerStatusFilter, setLedgerStatusFilter] = useState<
+    'all' | 'followup' | InvoicePaymentStatus
+  >('all');
   const [busyLogId, setBusyLogId] = useState<string | null>(null);
   const [exportingReport, setExportingReport] = useState<'excel' | 'pdf' | null>(null);
   const [previewState, setPreviewState] = useState<{
@@ -151,18 +168,35 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
     }
   };
 
-  // Only active (non-archived) invoices within selected date period
+  // Only active (non-archived) invoices within selected date period & date basis
   const periodLogs = useMemo(() => {
     const startMs = parseStartOfDayMs(startDate);
     const endMs = parseEndOfDayMs(endDate);
 
     return logs.filter((log) => {
       if (log.status === 'archived') return false;
+      if (dateBasis === 'paid') {
+        if (log.paymentStatus !== 'paid') return false;
+        const paidMs = getEffectivePaymentDateMs(log);
+        if (startMs !== null && paidMs < startMs) return false;
+        if (endMs !== null && paidMs > endMs) return false;
+        return true;
+      }
       if (startMs !== null && log.createdAtMs < startMs) return false;
       if (endMs !== null && log.createdAtMs > endMs) return false;
       return true;
     });
-  }, [logs, startDate, endDate]);
+  }, [logs, startDate, endDate, dateBasis]);
+
+  // All active pending invoices >= 3 days old (for selected sales scope)
+  const followUpPendingLogs = useMemo(() => {
+    return logs.filter((log) => {
+      if (!isFollowUpPendingLog(log)) return false;
+      if (selectedSales === 'all') return true;
+      const key = log.salesName?.trim() || '__unassigned__';
+      return key === selectedSales;
+    });
+  }, [logs, selectedSales]);
 
   // Per-sales performance breakdown (ALWAYS lists the 4 core sales reps)
   const salesBreakdown = useMemo(() => {
@@ -286,9 +320,10 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
   );
 
   const ledgerLogs = useMemo(() => {
+    if (ledgerStatusFilter === 'followup') return followUpPendingLogs;
     if (ledgerStatusFilter === 'all') return scopedLogs;
     return scopedLogs.filter((log) => log.paymentStatus === ledgerStatusFilter);
-  }, [scopedLogs, ledgerStatusFilter]);
+  }, [scopedLogs, followUpPendingLogs, ledgerStatusFilter]);
 
   const buildFullInvoice = (log: InvoiceLogRecord, items: InvoiceItem[]): ProformaInvoiceData => ({
     ...log.invoiceSnapshot,
@@ -373,12 +408,16 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
     return salesBreakdown.filter((r) => r.salesName === selectedSales);
   }, [salesBreakdown, selectedSales]);
 
+  const dateBasisLabel =
+    dateBasis === 'paid' ? 'Berdasarkan Tanggal Lunas' : 'Berdasarkan Tanggal Terbit';
+
   const handleExportExcel = async () => {
     if (exportingReport || scopedLogs.length === 0) return;
     setExportingReport('excel');
     try {
       const filename = await exportSalesPerformanceExcel({
         periodLabel,
+        dateBasisLabel,
         selectedSalesLabel,
         salesBreakdown: exportSalesBreakdown,
         scopedLogs,
@@ -397,6 +436,7 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
     try {
       const filename = exportSalesPerformancePdf({
         periodLabel,
+        dateBasisLabel,
         selectedSalesLabel,
         salesBreakdown: exportSalesBreakdown,
         scopedLogs,
@@ -452,25 +492,53 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
         </div>
       </div>
 
-      {/* Period & Sales Filter Bar */}
+      {/* Period, Date Basis & Sales Filter Bar */}
       <div className="bg-white border border-slate-200 rounded-lg p-4 space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3">
           {/* Quick period presets */}
-          <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-md w-fit">
-            {periodPresets.map((p) => (
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-md w-fit">
+              {periodPresets.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => handleSelectPreset(p.id)}
+                  className={`px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
+                    periodPreset === p.id
+                      ? 'bg-white text-slate-900 shadow-sm'
+                      : 'text-slate-600 hover:text-slate-900'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {/* Date Basis Toggle: Tanggal Terbit vs Tanggal Lunas */}
+            <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-md w-fit">
               <button
-                key={p.id}
                 type="button"
-                onClick={() => handleSelectPreset(p.id)}
-                className={`px-3 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
-                  periodPreset === p.id
+                onClick={() => setDateBasis('created')}
+                className={`px-2.5 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
+                  dateBasis === 'created'
                     ? 'bg-white text-slate-900 shadow-sm'
                     : 'text-slate-600 hover:text-slate-900'
                 }`}
               >
-                {p.label}
+                Tgl Terbit
               </button>
-            ))}
+              <button
+                type="button"
+                onClick={() => setDateBasis('paid')}
+                className={`px-2.5 py-1.5 text-xs font-medium rounded transition-colors cursor-pointer whitespace-nowrap ${
+                  dateBasis === 'paid'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+              >
+                Tgl Lunas
+              </button>
+            </div>
           </div>
 
           {/* Custom date range + Sales dropdown */}
@@ -519,7 +587,51 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
             </select>
           </div>
         </div>
+        {dateBasis === 'paid' && (
+          <div className="text-[11px] text-emerald-800 bg-emerald-50 border border-emerald-200 rounded px-3 py-1.5">
+            Mode <strong>Tanggal Lunas</strong> aktif: menampilkan dan menghitung omzet invoice yang dibayar (lunas) pada rentang tanggal ini.
+          </div>
+        )}
       </div>
+
+      {/* Follow-Up Pending Aging Alert Strip */}
+      {followUpPendingLogs.length > 0 && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5 text-xs text-amber-900">
+            <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+            <span>
+              <strong>{followUpPendingLogs.length} invoice Pending</strong>{' '}
+              {selectedSales === 'all' ? 'di seluruh tim sales' : `milik ${selectedSalesLabel}`}{' '}
+              sudah lewat {FOLLOW_UP_WARNING_DAYS} hari belum dibayar (total potensi{' '}
+              <strong className="font-mono">
+                Rp{' '}
+                {formatAmount(
+                  followUpPendingLogs.reduce((s, l) => s + l.grandTotal, 0),
+                  'dot'
+                )}
+              </strong>
+              ).
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() =>
+              setLedgerStatusFilter(
+                ledgerStatusFilter === 'followup' ? 'all' : 'followup'
+              )
+            }
+            className={`px-3 py-1.5 text-xs font-medium rounded-md border transition-colors cursor-pointer whitespace-nowrap shrink-0 ${
+              ledgerStatusFilter === 'followup'
+                ? 'border-amber-500 bg-amber-600 text-white'
+                : 'border-amber-300 bg-white text-amber-900 hover:bg-amber-100'
+            }`}
+          >
+            {ledgerStatusFilter === 'followup'
+              ? 'Kembali ke Semua'
+              : `Follow-Up Sekarang (${followUpPendingLogs.length})`}
+          </button>
+        </div>
+      )}
 
       {/* 4-Column KPI Summary Strip */}
       <div className="bg-white border border-slate-200 rounded-lg grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 divide-y sm:divide-y-0 sm:divide-x divide-slate-200">
@@ -708,12 +820,13 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
             </p>
           </div>
 
-          <div className="flex items-center gap-1 p-1 bg-slate-100 rounded-md w-fit">
+          <div className="flex flex-wrap items-center gap-1 p-1 bg-slate-100 rounded-md w-fit">
             {(
               [
                 { id: 'all', label: 'Semua' },
                 { id: 'paid', label: 'Lunas' },
                 { id: 'pending', label: 'Pending' },
+                { id: 'followup', label: `Follow-Up (${followUpPendingLogs.length})` },
                 { id: 'cancelled', label: 'Cancel' },
               ] as const
             ).map((tab) => (
@@ -755,6 +868,13 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
                 month: 'short',
                 year: 'numeric',
               });
+              const pendingAgeDays =
+                log.paymentStatus === 'pending' ? getPendingAgeDays(log.createdAtMs) : 0;
+              const pendingUrgency = getPendingUrgency(pendingAgeDays);
+              const paidDateFormatted =
+                log.paymentStatus === 'paid'
+                  ? formatIsoDateId(getEffectivePaymentDateIso(log))
+                  : '';
 
               return (
                 <div
@@ -772,6 +892,16 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
                             · {log.invoiceSnapshot.invoiceNumber}
                           </span>
                         )}
+                      {pendingUrgency === 'overdue' && (
+                        <span className="text-[11px] font-semibold text-red-700 bg-red-50 border border-red-200 px-1.5 py-0.5 rounded">
+                          Perlu Follow-Up ({pendingAgeDays} hari)
+                        </span>
+                      )}
+                      {pendingUrgency === 'warning' && (
+                        <span className="text-[11px] font-semibold text-amber-800 bg-amber-50 border border-amber-200 px-1.5 py-0.5 rounded">
+                          Pending {pendingAgeDays} hari
+                        </span>
+                      )}
                     </div>
                     <div className="text-xs text-slate-600 flex flex-wrap items-center gap-x-2 gap-y-0.5 tabular-nums">
                       <span className="font-medium text-slate-800">
@@ -780,10 +910,34 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
                       <span className="text-slate-300">·</span>
                       <span>{log.sellerName || '-'}</span>
                       <span className="text-slate-300">·</span>
-                      <span>{dateStr}</span>
+                      <span>Terbit: {dateStr}</span>
                       <span className="text-slate-300">·</span>
                       <span>{formatWeight(log.totalWeightKg, 'dot')} kg</span>
                     </div>
+
+                    {(paidDateFormatted || log.paymentNote) && (
+                      <div className="text-[11px] flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                        {paidDateFormatted && (
+                          <span className="inline-flex items-center gap-1 font-medium text-emerald-700">
+                            <CalendarCheck2 className="w-3 h-3" />
+                            Lunas: {paidDateFormatted}
+                          </span>
+                        )}
+                        {paidDateFormatted && log.paymentNote && (
+                          <span className="text-slate-300">·</span>
+                        )}
+                        {log.paymentNote && (
+                          <span className="text-slate-600">Catatan: {log.paymentNote}</span>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => onOpenPaymentModal(log, log.paymentStatus)}
+                          className="text-[#1D4ED8] hover:text-blue-800 font-medium cursor-pointer ml-1"
+                        >
+                          Edit Bayar
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex flex-wrap items-center gap-3 shrink-0">
@@ -835,6 +989,10 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
                       disabled={isBusy}
                       onChange={async (e) => {
                         const next = e.target.value as InvoicePaymentStatus;
+                        if (next === 'paid') {
+                          onOpenPaymentModal(log, 'paid');
+                          return;
+                        }
                         setBusyLogId(log.id);
                         try {
                           await onUpdatePaymentStatus(log, next);

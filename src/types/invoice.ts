@@ -91,6 +91,8 @@ export interface InvoiceLogRecord {
   status: InvoiceLogStatus;
   salesName: string;
   paymentStatus: InvoicePaymentStatus;
+  paidAtDate: string;
+  paymentNote: string;
   createdAtMs: number;
   updatedAtMs: number;
   itemCount: number;

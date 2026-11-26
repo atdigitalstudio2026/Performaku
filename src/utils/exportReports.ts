@@ -8,6 +8,7 @@ import {
   PpnMode,
 } from '../types/invoice';
 import { formatAmount, formatWeight, sanitizeFilename } from './formatters';
+import { formatIsoDateId, getEffectivePaymentDateIso } from './paymentHelpers';
 
 export interface SalesReportRow {
   salesName: string;
@@ -23,6 +24,7 @@ export interface SalesReportRow {
 
 export interface SalesPerformanceExportOptions {
   periodLabel: string;
+  dateBasisLabel?: string;
   selectedSalesLabel: string;
   salesBreakdown: SalesReportRow[];
   scopedLogs: InvoiceLogRecord[];
@@ -291,6 +293,7 @@ function addDetailedInvoiceSheet(
         { header: 'Tanggal Dokumen', width: 20, align: 'left' },
         { header: 'No. Invoice', width: 18, align: 'left' },
         { header: 'Status Bayar', width: 13, align: 'center' },
+        { header: 'Tgl Lunas', width: 14, align: 'center' },
         { header: 'Arsip', width: 10, align: 'center' },
         { header: 'Nama Sales', width: 18, align: 'left' },
         { header: 'Perusahaan (Penjual)', width: 26, align: 'left' },
@@ -307,6 +310,7 @@ function addDetailedInvoiceSheet(
         { header: 'Nilai Transfer (Rp)', width: 19, align: 'right', numFmt: CURRENCY_FMT },
         { header: 'Bank Tujuan', width: 14, align: 'left' },
         { header: 'No. Rekening', width: 18, align: 'left' },
+        { header: 'Catatan Bayar', width: 26, align: 'left' },
         { header: 'Aktivitas', width: 13, align: 'center' },
         { header: 'Admin Pembuat', width: 16, align: 'left' },
       ]
@@ -316,6 +320,7 @@ function addDetailedInvoiceSheet(
         { header: 'Tgl Dokumen', width: 19, align: 'left' },
         { header: 'No. Invoice', width: 18, align: 'left' },
         { header: 'Status Bayar', width: 13, align: 'center' },
+        { header: 'Tgl Lunas', width: 14, align: 'center' },
         { header: 'Nama Sales', width: 18, align: 'left' },
         { header: 'Perusahaan (Penjual)', width: 26, align: 'left' },
         { header: 'Nama Pembeli', width: 26, align: 'left' },
@@ -328,6 +333,7 @@ function addDetailedInvoiceSheet(
         { header: 'Deposit (Rp)', width: 16, align: 'right', numFmt: CURRENCY_FMT },
         { header: 'Sisa Transfer (Rp)', width: 19, align: 'right', numFmt: CURRENCY_FMT },
         { header: 'Rekening Bank', width: 20, align: 'left' },
+        { header: 'Catatan Bayar', width: 26, align: 'left' },
         { header: 'Admin', width: 15, align: 'left' },
       ];
 
@@ -375,6 +381,12 @@ function addDetailedInvoiceSheet(
     totalDeposit += log.appliedDeposit;
     totalNet += log.netPayable;
 
+    const paidDateStr =
+      log.paymentStatus === 'paid'
+        ? formatIsoDateId(getEffectivePaymentDateIso(log)) || '-'
+        : '-';
+    const noteStr = (log.paymentNote || '').trim() || '-';
+
     const values: (string | number)[] = includeArchiveAndAction
       ? [
           idx + 1,
@@ -382,6 +394,7 @@ function addDetailedInvoiceSheet(
           log.invoiceSnapshot.cityDate || '-',
           log.invoiceSnapshot.invoiceNumber || '-',
           PAYMENT_LABELS[log.paymentStatus],
+          paidDateStr,
           log.status === 'archived' ? 'Arsip' : 'Aktif',
           log.salesName || 'Belum Ditentukan',
           log.sellerName || '-',
@@ -400,6 +413,7 @@ function addDetailedInvoiceSheet(
             log.invoiceSnapshot.bankAccount.bankName ||
             '-',
           log.invoiceSnapshot.bankAccount.accountNumber || '-',
+          noteStr,
           ACTION_LABELS[log.actionType] || log.actionType,
           log.ownerName || 'Tim Admin',
         ]
@@ -409,6 +423,7 @@ function addDetailedInvoiceSheet(
           log.invoiceSnapshot.cityDate || '-',
           log.invoiceSnapshot.invoiceNumber || '-',
           PAYMENT_LABELS[log.paymentStatus],
+          paidDateStr,
           log.salesName || 'Belum Ditentukan',
           log.sellerName || '-',
           log.invoiceSnapshot.buyerName || '-',
@@ -422,6 +437,7 @@ function addDetailedInvoiceSheet(
           log.netPayable,
           `${log.invoiceSnapshot.bankAccount.bankShortName || ''} ${log.invoiceSnapshot.bankAccount.accountNumber || ''}`.trim() ||
             '-',
+          noteStr,
           log.ownerName || 'Tim Admin',
         ];
 
@@ -432,7 +448,7 @@ function addDetailedInvoiceSheet(
       cell.alignment = {
         horizontal: columns[cIdx].align,
         vertical: 'middle',
-        wrapText: cIdx === 8 || cIdx === 9,
+        wrapText: cIdx === 9 || cIdx === 10 || cIdx === 22 || cIdx === 18,
       };
       cell.border = THIN_BORDER;
       if (idx % 2 === 1) {
@@ -450,40 +466,40 @@ function addDetailedInvoiceSheet(
   // Grand Total row
   const totalRowNum = headerRowIdx + 1 + records.length;
   const totalRow = ws.getRow(totalRowNum);
-  const labelCol = includeArchiveAndAction ? 9 : 8;
+  const labelCol = includeArchiveAndAction ? 10 : 9;
   totalRow.getCell(1).value = '';
   totalRow.getCell(labelCol).value = `TOTAL (${records.length} INVOICE)`;
 
   if (includeArchiveAndAction) {
-    totalRow.getCell(12).value = totalWeight;
-    totalRow.getCell(12).numFmt = WEIGHT_FMT;
-    totalRow.getCell(14).value = totalSubtotal;
-    totalRow.getCell(14).numFmt = CURRENCY_FMT;
-    totalRow.getCell(15).value = totalPpn;
+    totalRow.getCell(13).value = totalWeight;
+    totalRow.getCell(13).numFmt = WEIGHT_FMT;
+    totalRow.getCell(15).value = totalSubtotal;
     totalRow.getCell(15).numFmt = CURRENCY_FMT;
-    totalRow.getCell(16).value = totalShipping;
+    totalRow.getCell(16).value = totalPpn;
     totalRow.getCell(16).numFmt = CURRENCY_FMT;
-    totalRow.getCell(17).value = totalGrand;
+    totalRow.getCell(17).value = totalShipping;
     totalRow.getCell(17).numFmt = CURRENCY_FMT;
-    totalRow.getCell(18).value = totalDeposit;
+    totalRow.getCell(18).value = totalGrand;
     totalRow.getCell(18).numFmt = CURRENCY_FMT;
-    totalRow.getCell(19).value = totalNet;
+    totalRow.getCell(19).value = totalDeposit;
     totalRow.getCell(19).numFmt = CURRENCY_FMT;
+    totalRow.getCell(20).value = totalNet;
+    totalRow.getCell(20).numFmt = CURRENCY_FMT;
   } else {
-    totalRow.getCell(10).value = totalWeight;
-    totalRow.getCell(10).numFmt = WEIGHT_FMT;
-    totalRow.getCell(11).value = totalSubtotal;
-    totalRow.getCell(11).numFmt = CURRENCY_FMT;
-    totalRow.getCell(12).value = totalPpn;
+    totalRow.getCell(11).value = totalWeight;
+    totalRow.getCell(11).numFmt = WEIGHT_FMT;
+    totalRow.getCell(12).value = totalSubtotal;
     totalRow.getCell(12).numFmt = CURRENCY_FMT;
-    totalRow.getCell(13).value = totalShipping;
+    totalRow.getCell(13).value = totalPpn;
     totalRow.getCell(13).numFmt = CURRENCY_FMT;
-    totalRow.getCell(14).value = totalGrand;
+    totalRow.getCell(14).value = totalShipping;
     totalRow.getCell(14).numFmt = CURRENCY_FMT;
-    totalRow.getCell(15).value = totalDeposit;
+    totalRow.getCell(15).value = totalGrand;
     totalRow.getCell(15).numFmt = CURRENCY_FMT;
-    totalRow.getCell(16).value = totalNet;
+    totalRow.getCell(16).value = totalDeposit;
     totalRow.getCell(16).numFmt = CURRENCY_FMT;
+    totalRow.getCell(17).value = totalNet;
+    totalRow.getCell(17).numFmt = CURRENCY_FMT;
   }
 
   applyTotalRowStyle(
@@ -757,7 +773,8 @@ export async function exportSalesPerformanceExcel(
   const wb = await createWorkbook();
 
   const printedAt = formatDateTimeId(Date.now());
-  const subtitle = `Periode: ${options.periodLabel}  |  Filter Sales: ${options.selectedSalesLabel}  |  Dicetak: ${printedAt}  |  *Hanya invoice berstatus LUNAS yang masuk pencapaian omzet`;
+  const basisText = options.dateBasisLabel ? ` (${options.dateBasisLabel})` : '';
+  const subtitle = `Periode: ${options.periodLabel}${basisText}  |  Filter Sales: ${options.selectedSalesLabel}  |  Dicetak: ${printedAt}  |  *Hanya invoice berstatus LUNAS yang masuk pencapaian omzet`;
 
   // Sheet 1: Ringkasan Performa Sales
   addSalesSummarySheet(
@@ -1000,10 +1017,11 @@ export function exportSalesPerformancePdf(options: SalesPerformanceExportOptions
   const pageH = 210;
   const printedAt = formatDateTimeId(Date.now());
 
+  const basisText = options.dateBasisLabel ? ` (${options.dateBasisLabel})` : '';
   let y = drawPdfReportBanner(
     doc,
     'LAPORAN PERFORMA PENJUALAN SALES',
-    `Periode: ${options.periodLabel}   |   Filter Sales: ${options.selectedSalesLabel}   |   Hanya invoice LUNAS yang dihitung ke omzet`,
+    `Periode: ${options.periodLabel}${basisText}   |   Filter Sales: ${options.selectedSalesLabel}   |   Hanya invoice LUNAS yang dihitung ke omzet`,
     printedAt
   );
 

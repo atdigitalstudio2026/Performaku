@@ -42,6 +42,17 @@
           "enum": ["pending", "paid", "cancelled"],
           "description": "Status pembayaran Proforma Invoice (hanya 'paid' yang masuk ke data penjualan sales)."
         },
+        "paidAtDate": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^(|\\d{4}-\\d{2}-\\d{2})$",
+          "description": "Tanggal pelunasan format YYYY-MM-DD (kosong jika belum lunas)."
+        },
+        "paymentNote": {
+          "type": "string",
+          "maxLength": 300,
+          "description": "Catatan atau referensi transfer pembayaran / alasan pembatalan."
+        },
         "title": {
           "type": "string",
           "minLength": 1,
@@ -187,6 +198,8 @@
         "status",
         "salesName",
         "paymentStatus",
+        "paidAtDate",
+        "paymentNote",
         "title",
         "cityDate",
         "invoiceNumber",

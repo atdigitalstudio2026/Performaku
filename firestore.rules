@@ -88,7 +88,7 @@ service cloud.firestore {
         ])
         && data.keys().hasOnly([
           'ownerId', 'ownerEmail', 'ownerName', 'actionType', 'status',
-          'salesName', 'paymentStatus',
+          'salesName', 'paymentStatus', 'paidAtDate', 'paymentNote',
           'title', 'cityDate', 'invoiceNumber', 'showInvoiceNumber',
           'buyerName', 'buyerAddress', 'sellerName', 'currency', 'numberFormat',
           'ppnMode', 'ppnRate', 'qtyHeader', 'priceHeader', 'taxLabel', 'qtyUnit',
@@ -105,6 +105,8 @@ service cloud.firestore {
         && data.status is string && data.status in ['active', 'archived']
         && (!('salesName' in data) || (data.salesName is string && data.salesName.size() <= 120))
         && (!('paymentStatus' in data) || (data.paymentStatus is string && data.paymentStatus in ['pending', 'paid', 'cancelled']))
+        && (!('paidAtDate' in data) || (data.paidAtDate is string && (data.paidAtDate.size() == 0 || (data.paidAtDate.size() == 10 && data.paidAtDate.matches('^\\d{4}-\\d{2}-\\d{2}$')))))
+        && (!('paymentNote' in data) || (data.paymentNote is string && data.paymentNote.size() <= 300))
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 100
         && data.cityDate is string && data.cityDate.size() <= 100
         && data.invoiceNumber is string && data.invoiceNumber.size() <= 80
@@ -217,7 +219,9 @@ service cloud.firestore {
 
       allow create: if isValidId(logId)
         && isValidInvoiceLog(incoming())
-        && incoming().keys().hasAll(['shippingCost', 'shippingLabel', 'salesName', 'paymentStatus'])
+        && incoming().keys().hasAll([
+          'shippingCost', 'shippingLabel', 'salesName', 'paymentStatus', 'paidAtDate', 'paymentNote'
+        ])
         && incoming().status == 'active'
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
@@ -236,6 +240,10 @@ service cloud.firestore {
           (incoming().diff(existing()).affectedKeys().hasOnly(['actionType', 'updatedAt']))
           ||
           (incoming().diff(existing()).affectedKeys().hasOnly(['paymentStatus', 'updatedAt']))
+          ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['paymentStatus', 'paidAtDate', 'paymentNote', 'updatedAt']))
+          ||
+          (incoming().diff(existing()).affectedKeys().hasOnly(['paidAtDate', 'paymentNote', 'updatedAt']))
           ||
           (incoming().diff(existing()).affectedKeys().hasOnly(['salesName', 'updatedAt']))
         );

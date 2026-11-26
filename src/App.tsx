@@ -14,6 +14,7 @@ import { BankAccountsView } from './components/BankAccountsView';
 import { InvoiceEditor } from './components/InvoiceEditor';
 import { InvoiceLogsView } from './components/InvoiceLogsView';
 import { InvoicePreview } from './components/InvoicePreview';
+import { PaymentUpdateModal } from './components/PaymentUpdateModal';
 import { SalesPerformanceView } from './components/SalesPerformanceView';
 import { SavedDraftsView } from './components/SavedDraftsView';
 import { WhatsAppModal } from './components/WhatsAppModal';
@@ -65,6 +66,7 @@ import {
   isDuplicateInvoiceNumber,
   resolveCompanyCode,
 } from './utils/invoiceNumbering';
+import { formatIsoDateId, toLocalDateIso } from './utils/paymentHelpers';
 import {
   getDefaultTemplateForStatus,
   WhatsAppTemplateMode,
@@ -118,6 +120,10 @@ export default function App() {
     company: CompanyProfile;
     initialMode: WhatsAppTemplateMode;
   } | null>(null);
+  const [paymentModalState, setPaymentModalState] = useState<{
+    log: InvoiceLogRecord;
+    targetStatus: InvoicePaymentStatus;
+  } | null>(null);
 
   // Shared Firebase Log & Bank State (no login required)
   const [adminName, setAdminName] = useState<string>(() =>
@@ -129,6 +135,8 @@ export default function App() {
       ...l,
       salesName: l.salesName ?? l.invoiceSnapshot?.salesName ?? '',
       paymentStatus: l.paymentStatus ?? 'pending',
+      paidAtDate: l.paidAtDate ?? '',
+      paymentNote: l.paymentNote ?? '',
       storageSource: 'local' as const,
     }))
   );
@@ -490,6 +498,8 @@ export default function App() {
       status: 'active',
       salesName: cleanedSales,
       paymentStatus: 'pending',
+      paidAtDate: '',
+      paymentNote: '',
       createdAtMs: now,
       updatedAtMs: now,
       itemCount: items.length,
@@ -571,22 +581,52 @@ export default function App() {
 
   const handleUpdatePaymentStatus = async (
     log: InvoiceLogRecord,
-    nextStatus: InvoicePaymentStatus
+    nextStatus: InvoicePaymentStatus,
+    options?: { paidAtDate?: string; paymentNote?: string }
   ) => {
+    const nextPaidAtDate =
+      nextStatus === 'paid' ? options?.paidAtDate || toLocalDateIso() : '';
+    const nextPaymentNote =
+      options?.paymentNote !== undefined ? options.paymentNote : log.paymentNote || '';
+
     if (log.storageSource === 'local') {
       setLocalLogs((prev) =>
         prev.map((item) =>
           item.id === log.id
-            ? { ...item, paymentStatus: nextStatus, updatedAtMs: Date.now() }
+            ? {
+                ...item,
+                paymentStatus: nextStatus,
+                paidAtDate: nextPaidAtDate,
+                paymentNote: nextPaymentNote,
+                updatedAtMs: Date.now(),
+              }
             : item
         )
       );
-      showNotice(`Status diubah ke ${PAYMENT_STATUS_NOTICE[nextStatus]}.`);
+      const dateInfo =
+        nextStatus === 'paid' && nextPaidAtDate
+          ? ` (Tgl Lunas: ${formatIsoDateId(nextPaidAtDate)})`
+          : '';
+      showNotice(`Status diubah ke ${PAYMENT_STATUS_NOTICE[nextStatus]}${dateInfo}.`);
       return;
     }
 
-    await updateInvoicePaymentStatus(log.id, nextStatus);
-    showNotice(`Status invoice diubah ke ${PAYMENT_STATUS_NOTICE[nextStatus]}.`);
+    await updateInvoicePaymentStatus(log.id, nextStatus, {
+      paidAtDate: nextPaidAtDate,
+      paymentNote: nextPaymentNote,
+    });
+    const dateInfo =
+      nextStatus === 'paid' && nextPaidAtDate
+        ? ` (Tgl Lunas: ${formatIsoDateId(nextPaidAtDate)})`
+        : '';
+    showNotice(`Status invoice diubah ke ${PAYMENT_STATUS_NOTICE[nextStatus]}${dateInfo}.`);
+  };
+
+  const handleOpenPaymentModal = (
+    log: InvoiceLogRecord,
+    targetStatus: InvoicePaymentStatus
+  ) => {
+    setPaymentModalState({ log, targetStatus });
   };
 
   const handleUpdateSalesName = async (log: InvoiceLogRecord, nextSalesName: string) => {
@@ -1090,6 +1130,7 @@ export default function App() {
             onSyncLocalLogs={handleSyncLocalLogsToFirebase}
             onSaveCurrentToLog={handleSaveToCloudLog}
             onUpdatePaymentStatus={handleUpdatePaymentStatus}
+            onOpenPaymentModal={handleOpenPaymentModal}
             onUpdateSalesName={handleUpdateSalesName}
             onFetchLogItems={handleFetchLogItems}
             onLoadLogToEditor={handleLoadLogToEditor}
@@ -1129,6 +1170,7 @@ export default function App() {
             logs={combinedLogs}
             loadingLogs={loadingLogs}
             onUpdatePaymentStatus={handleUpdatePaymentStatus}
+            onOpenPaymentModal={handleOpenPaymentModal}
             onUpdateSalesName={handleUpdateSalesName}
             onFetchLogItems={handleFetchLogItems}
             onLoadLogToEditor={handleLoadLogToEditor}
@@ -1189,6 +1231,20 @@ export default function App() {
           initialMode={waModalState.initialMode}
           onClose={() => setWaModalState(null)}
           onNotify={showNotice}
+        />
+      )}
+
+      {paymentModalState && (
+        <PaymentUpdateModal
+          log={paymentModalState.log}
+          targetStatus={paymentModalState.targetStatus}
+          onSave={async ({ paymentStatus, paidAtDate, paymentNote }) => {
+            await handleUpdatePaymentStatus(paymentModalState.log, paymentStatus, {
+              paidAtDate,
+              paymentNote,
+            });
+          }}
+          onClose={() => setPaymentModalState(null)}
         />
       )}
     </div>
