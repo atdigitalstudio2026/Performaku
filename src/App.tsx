@@ -136,6 +136,7 @@ export default function App() {
   const [waModalState, setWaModalState] = useState<{
     invoice: ProformaInvoiceData;
     company: CompanyProfile;
+    footer: DocumentFooter;
     initialMode: WhatsAppTemplateMode;
   } | null>(null);
   const [paymentModalState, setPaymentModalState] = useState<{
@@ -1369,6 +1370,7 @@ export default function App() {
     setWaModalState({
       invoice,
       company,
+      footer,
       initialMode: 'invoice',
     });
   };
@@ -1388,6 +1390,7 @@ export default function App() {
     setWaModalState({
       invoice: fullInvoice,
       company: log.companySnapshot,
+      footer: log.footerSnapshot,
       initialMode: getDefaultTemplateForStatus(log.paymentStatus),
     });
   };
@@ -1780,6 +1783,7 @@ export default function App() {
         <WhatsAppModal
           invoice={waModalState.invoice}
           company={waModalState.company}
+          footer={waModalState.footer}
           initialMode={waModalState.initialMode}
           onClose={() => setWaModalState(null)}
           onNotify={showNotice}

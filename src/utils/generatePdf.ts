@@ -10,11 +10,18 @@ import {
   sanitizeFilename,
 } from './formatters';
 
-export async function downloadProformaInvoicePdf(
+export interface GeneratedPdfAsset {
+  doc: jsPDF;
+  filename: string;
+  blob: Blob;
+  file: File;
+}
+
+export async function buildProformaInvoicePdf(
   invoice: ProformaInvoiceData,
   company: CompanyProfile,
   footer?: DocumentFooter
-): Promise<string> {
+): Promise<GeneratedPdfAsset> {
   const doc = new jsPDF({
     orientation: 'portrait',
     unit: 'mm',
@@ -671,6 +678,17 @@ export async function downloadProformaInvoicePdf(
 
   const buyerSlug = sanitizeFilename(invoice.buyerName || 'Customer');
   const filename = `Proforma_Invoice_${buyerSlug || 'Dokumen'}.pdf`;
+  const blob = doc.output('blob');
+  const file = new File([blob], filename, { type: 'application/pdf' });
+  return { doc, filename, blob, file };
+}
+
+export async function downloadProformaInvoicePdf(
+  invoice: ProformaInvoiceData,
+  company: CompanyProfile,
+  footer?: DocumentFooter
+): Promise<string> {
+  const { doc, filename } = await buildProformaInvoicePdf(invoice, company, footer);
   doc.save(filename);
   return filename;
 }
