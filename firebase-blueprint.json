@@ -335,6 +335,60 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "InvoiceCounter": {
+      "title": "InvoiceCounter",
+      "description": "Penghitung nomor urut otomatis Proforma Invoice per PT per bulan agar tidak terjadi nomor ganda antar admin.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "enum": ["shared_team"],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "companyCode": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 16,
+          "pattern": "^[A-Z0-9]+$"
+        },
+        "companyName": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "periodKey": {
+          "type": "string",
+          "minLength": 7,
+          "maxLength": 7,
+          "pattern": "^\\d{4}-\\d{2}$"
+        },
+        "lastSequence": {
+          "type": "integer"
+        },
+        "lastInvoiceNumber": {
+          "type": "string",
+          "maxLength": 80
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "companyCode",
+        "companyName",
+        "periodKey",
+        "lastSequence",
+        "lastInvoiceNumber",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -355,6 +409,12 @@
         "$ref": "#/entities/BankAccountRecord"
       },
       "description": "Menyimpan daftar rekening bank bersama seluruh admin di cloud."
+    },
+    "/invoiceCounters/{counterId}": {
+      "schema": {
+        "$ref": "#/entities/InvoiceCounter"
+      },
+      "description": "Menyimpan nomor urut otomatis Proforma Invoice per PT per bulan secara atomik."
     }
   }
 }

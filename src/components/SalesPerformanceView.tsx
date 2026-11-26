@@ -1,5 +1,13 @@
 import React, { useMemo, useState } from 'react';
-import { Download, Eye, FileSpreadsheet, FileText, FileUp, X } from 'lucide-react';
+import {
+  Download,
+  Eye,
+  FileSpreadsheet,
+  FileText,
+  FileUp,
+  MessageCircle,
+  X,
+} from 'lucide-react';
 import { SALES_REP_OPTIONS } from '../data/defaultInvoice';
 import {
   CompanyProfile,
@@ -33,6 +41,7 @@ interface SalesPerformanceViewProps {
     footer: DocumentFooter
   ) => void;
   onDownloadLogPdf: (log: InvoiceLogRecord, items: InvoiceItem[]) => Promise<void>;
+  onOpenWhatsApp: (log: InvoiceLogRecord, cachedItems?: InvoiceItem[]) => Promise<void>;
   onNotify?: (message: string) => void;
 }
 
@@ -114,6 +123,7 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
   onFetchLogItems,
   onLoadLogToEditor,
   onDownloadLogPdf,
+  onOpenWhatsApp,
   onNotify,
 }) => {
   const initialRange = getPresetRange('month');
@@ -313,6 +323,15 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
     try {
       const items = cachedItems ?? (await onFetchLogItems(log));
       await onDownloadLogPdf(log, items);
+    } finally {
+      setBusyLogId(null);
+    }
+  };
+
+  const handleOpenWa = async (log: InvoiceLogRecord, cachedItems?: InvoiceItem[]) => {
+    setBusyLogId(log.id);
+    try {
+      await onOpenWhatsApp(log, cachedItems);
     } finally {
       setBusyLogId(null);
     }
@@ -835,6 +854,17 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
                     <button
                       type="button"
                       disabled={isBusy}
+                      onClick={() => void handleOpenWa(log)}
+                      title="Kirim / follow-up lewat WhatsApp"
+                      className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
+                    >
+                      <MessageCircle className="w-3.5 h-3.5" />
+                      WA
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={isBusy}
                       onClick={() => handleOpenPreview(log)}
                       className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap"
                     >
@@ -865,6 +895,14 @@ export const SalesPerformanceView: React.FC<SalesPerformanceViewProps> = ({
             </div>
 
             <div className="flex items-center gap-2 shrink-0">
+              <button
+                type="button"
+                onClick={() => void handleOpenWa(previewState.log, previewState.items)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded-md border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer whitespace-nowrap"
+              >
+                <MessageCircle className="w-3.5 h-3.5" />
+                Pesan WA
+              </button>
               <button
                 type="button"
                 onClick={() => void handleRestoreToEditor(previewState.log, previewState.items)}

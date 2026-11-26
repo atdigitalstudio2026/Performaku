@@ -6,6 +6,7 @@ import {
   ImagePlus,
   Package,
   Plus,
+  RefreshCw,
   RotateCcw,
   Save,
   SlidersHorizontal,
@@ -41,10 +42,17 @@ interface InvoiceEditorProps {
   company: CompanyProfile;
   footer: DocumentFooter;
   savedBanks: BankAccount[];
+  activeCompanyCode: string;
+  nextInvoiceNumberPreview: string;
+  isDuplicateNumber: boolean;
+  isCurrentNumberReserved: boolean;
+  isGeneratingNumber: boolean;
   onChangeInvoice: (next: ProformaInvoiceData) => void;
   onChangeCompany: (next: CompanyProfile) => void;
   onChangeFooter: (next: DocumentFooter) => void;
   onSaveBankPreset: (bank: BankAccount) => void;
+  onSelectCompanyPreset: (preset: CompanyLogoPreset) => void;
+  onGenerateNextNumber: () => Promise<void>;
 }
 
 export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
@@ -52,10 +60,17 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
   company,
   footer,
   savedBanks,
+  activeCompanyCode,
+  nextInvoiceNumberPreview,
+  isDuplicateNumber,
+  isCurrentNumberReserved,
+  isGeneratingNumber,
   onChangeInvoice,
   onChangeCompany,
   onChangeFooter,
   onSaveBankPreset,
+  onSelectCompanyPreset,
+  onGenerateNextNumber,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
@@ -205,23 +220,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                 <button
                   key={preset.id}
                   type="button"
-                  onClick={() => {
-                    onChangeCompany({
-                      ...company,
-                      logoDataUrl: preset.logoUrl,
-                      logoWidthMm: preset.recommendedWidthMm,
-                      name: preset.companyName,
-                    });
-                    const matchedBank =
-                      savedBanks.find((b) => b.id === preset.defaultBankId) ||
-                      DEFAULT_BANK_ACCOUNTS.find((b) => b.id === preset.defaultBankId);
-                    if (matchedBank) {
-                      onChangeInvoice({
-                        ...invoice,
-                        bankAccount: { ...matchedBank },
-                      });
-                    }
-                  }}
+                  onClick={() => onSelectCompanyPreset(preset)}
                   className={`p-2 rounded-lg border text-left transition-colors cursor-pointer bg-white ${
                     isSelected
                       ? 'border-[#1D4ED8] ring-2 ring-[#1D4ED8]/20'
@@ -239,12 +238,15 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                   <div className="mt-1.5 text-[11px] font-medium text-slate-800 truncate text-center">
                     {preset.companyName}
                   </div>
+                  <div className="text-[10px] font-mono text-slate-500 text-center">
+                    Kode: {preset.code}
+                  </div>
                 </button>
               );
             })}
           </div>
           <p className="text-[11px] text-slate-500 mt-1.5">
-            Memilih logo perusahaan akan otomatis menyesuaikan nama penjual dan rekening BCA terkait.
+            Memilih logo perusahaan akan otomatis menyesuaikan nama penjual, rekening BCA, dan kode penomoran invoice PT terkait.
           </p>
         </div>
 
@@ -518,8 +520,15 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
           </div>
 
           <div className="sm:col-span-2">
-            <div className="flex items-center justify-between mb-1">
-              <label className="text-xs font-medium text-slate-700">Nomor Proforma Invoice</label>
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-1">
+              <div className="flex items-center gap-2">
+                <label className="text-xs font-medium text-slate-700">
+                  Nomor Proforma Invoice
+                </label>
+                <span className="text-[10px] font-mono font-semibold text-slate-600 bg-slate-100 border border-slate-200 px-1.5 py-0.5 rounded">
+                  PT: {activeCompanyCode}
+                </span>
+              </div>
               <label className="inline-flex items-center gap-1.5 text-xs text-slate-600 cursor-pointer">
                 <input
                   type="checkbox"
@@ -530,14 +539,42 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                 Tampilkan nomor
               </label>
             </div>
-            <input
-              type="text"
-              value={invoice.invoiceNumber}
-              disabled={!invoice.showInvoiceNumber}
-              onChange={(e) => onChangeInvoice({ ...invoice, invoiceNumber: e.target.value })}
-              placeholder="PI/SRA/2026/11/001"
-              className="w-full px-3 py-2 text-sm font-mono rounded-md border border-slate-300 bg-white disabled:bg-slate-100 disabled:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
-            />
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={invoice.invoiceNumber}
+                disabled={!invoice.showInvoiceNumber}
+                onChange={(e) => onChangeInvoice({ ...invoice, invoiceNumber: e.target.value })}
+                placeholder={nextInvoiceNumberPreview}
+                className="flex-1 min-w-0 px-3 py-2 text-sm font-mono rounded-md border border-slate-300 bg-white disabled:bg-slate-100 disabled:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+              />
+              <button
+                type="button"
+                onClick={() => void onGenerateNextNumber()}
+                disabled={isGeneratingNumber}
+                title="Ambil nomor urut otomatis berikutnya dari database bersama untuk PT aktif"
+                className="inline-flex items-center gap-1.5 px-3 py-2 text-xs font-medium rounded-md border border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50 transition-colors cursor-pointer whitespace-nowrap shrink-0"
+              >
+                <RefreshCw className={`w-3.5 h-3.5 ${isGeneratingNumber ? 'animate-spin' : ''}`} />
+                {isGeneratingNumber ? 'Mengambil...' : 'Nomor Berikutnya'}
+              </button>
+            </div>
+            {invoice.showInvoiceNumber && isDuplicateNumber ? (
+              <p className="text-[11px] text-amber-700 mt-1">
+                Nomor ini sudah tercatat di log. Saat Unduh PDF atau Simpan ke Log akan otomatis dibuatkan nomor baru ({nextInvoiceNumberPreview}) agar tidak ganda.
+              </p>
+            ) : invoice.showInvoiceNumber && isCurrentNumberReserved ? (
+              <p className="text-[11px] text-emerald-700 mt-1">
+                Nomor unik sudah diamankan di database bersama Firebase untuk kode {activeCompanyCode}.
+              </p>
+            ) : (
+              <p className="text-[11px] text-slate-500 mt-1">
+                Otomatis berurutan per PT &amp; bulan · Urutan berikutnya:{' '}
+                <span className="font-mono font-semibold text-slate-700">
+                  {nextInvoiceNumberPreview}
+                </span>
+              </p>
+            )}
           </div>
 
           <div className="sm:col-span-2">

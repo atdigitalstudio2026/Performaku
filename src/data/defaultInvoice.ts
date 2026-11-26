@@ -3,6 +3,7 @@ import { formatTodayCityDate } from '../utils/formatters';
 
 export interface CompanyLogoPreset {
   id: string;
+  code: string;
   companyName: string;
   logoUrl: string;
   recommendedWidthMm: number;
@@ -12,6 +13,7 @@ export interface CompanyLogoPreset {
 export const COMPANY_LOGO_PRESETS: CompanyLogoPreset[] = [
   {
     id: 'sra',
+    code: 'SRA',
     companyName: 'PT Sumber Roso Agromakmur',
     logoUrl: '/assets/aistudio/LOGO_SRA_SUMBER_ROSO_AGROMAKMUR-02_3e1a1d18.png',
     recommendedWidthMm: 46,
@@ -19,6 +21,7 @@ export const COMPANY_LOGO_PRESETS: CompanyLogoPreset[] = [
   },
   {
     id: 'exindo',
+    code: 'EXA',
     companyName: 'PT Exindokarsa Agung',
     logoUrl: '/assets/aistudio/Exindo_logo_png_disesuaikan_a98b1909.png',
     recommendedWidthMm: 34,
@@ -26,6 +29,7 @@ export const COMPANY_LOGO_PRESETS: CompanyLogoPreset[] = [
   },
   {
     id: 'indo-megah-raya',
+    code: 'IMR',
     companyName: 'PT Indo Megah Raya',
     logoUrl: '/assets/aistudio/Logo_Indo_Megah_Raya_503dc3d1.png',
     recommendedWidthMm: 54,
@@ -33,6 +37,7 @@ export const COMPANY_LOGO_PRESETS: CompanyLogoPreset[] = [
   },
   {
     id: 'pelangi-agro',
+    code: 'PAS',
     companyName: 'PT Pelangi Agro Sejahtera',
     logoUrl: '/assets/aistudio/Logo_Pelangi_Agro_Sejahtera_ec7b5e3e.png',
     recommendedWidthMm: 50,
@@ -107,10 +112,14 @@ export const TABLE_HEADER_COLOR_PRESETS = [
   { label: 'Abu Terang', hex: '#E2E8F0' },
 ];
 
+const nowDate = new Date();
+const defaultPeriodYear = nowDate.getFullYear();
+const defaultPeriodMonth = String(nowDate.getMonth() + 1).padStart(2, '0');
+
 export const DEFAULT_INVOICE_DATA: ProformaInvoiceData = {
   title: 'PROFORMA INVOICE',
-  invoiceNumber: 'PI/SRA/2026/11/001',
-  showInvoiceNumber: false,
+  invoiceNumber: `PI/SRA/${defaultPeriodYear}/${defaultPeriodMonth}/001`,
+  showInvoiceNumber: true,
   cityDate: formatTodayCityDate('Jakarta'),
   buyerName: 'Ryuu Industry Indonesia',
   buyerAddress: '',

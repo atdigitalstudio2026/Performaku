@@ -184,6 +184,27 @@ service cloud.firestore {
         && data.updatedAt is timestamp;
     }
 
+    function isValidInvoiceCounter(data) {
+      return data.keys().hasAll([
+          'ownerId', 'companyCode', 'companyName', 'periodKey',
+          'lastSequence', 'lastInvoiceNumber', 'createdAt', 'updatedAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'companyCode', 'companyName', 'periodKey',
+          'lastSequence', 'lastInvoiceNumber', 'createdAt', 'updatedAt'
+        ])
+        && isSharedTeamOwner(data.ownerId)
+        && data.companyCode is string && data.companyCode.size() >= 1 && data.companyCode.size() <= 16
+        && data.companyCode.matches('^[A-Z0-9]+$')
+        && data.companyName is string && data.companyName.size() <= 200
+        && data.periodKey is string && data.periodKey.size() == 7
+        && data.periodKey.matches('^\\d{4}-\\d{2}$')
+        && data.lastSequence is int && data.lastSequence >= 0 && data.lastSequence <= 999999
+        && data.lastInvoiceNumber is string && data.lastInvoiceNumber.size() <= 80
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
     // =========================================================================
     // Collection Rules (Unified Shared Team Access — No Login Required)
     // =========================================================================
@@ -264,6 +285,34 @@ service cloud.firestore {
         ]);
 
       allow delete: if isValidId(bankId) && isSharedTeamOwner(existing().ownerId);
+    }
+
+    // 3. Shared Per-PT Monthly Invoice Sequence Counters (Atomic Transactions)
+    match /invoiceCounters/{counterId} {
+      allow get: if isValidId(counterId)
+        && (resource == null || isSharedTeamOwner(existing().ownerId));
+
+      allow list: if isSharedTeamOwner(existing().ownerId);
+
+      allow create: if isValidId(counterId)
+        && isValidInvoiceCounter(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(counterId)
+        && isValidInvoiceCounter(incoming())
+        && isSharedTeamOwner(existing().ownerId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().companyCode == existing().companyCode
+        && incoming().periodKey == existing().periodKey
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().lastSequence >= existing().lastSequence
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'companyName', 'lastSequence', 'lastInvoiceNumber', 'updatedAt'
+        ]);
+
+      allow delete: if false;
     }
   }
 }

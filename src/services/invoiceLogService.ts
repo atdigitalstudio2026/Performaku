@@ -5,6 +5,7 @@ import {
   limit,
   onSnapshot,
   query,
+  runTransaction,
   serverTimestamp,
   setDoc,
   Timestamp,
@@ -28,8 +29,25 @@ import {
   ProformaInvoiceData,
 } from '../types/invoice';
 import { calculateInvoiceTotals } from '../utils/formatters';
+import {
+  formatProformaInvoiceNumber,
+  getCounterDocId,
+  getCurrentPeriodKey,
+  parseSequenceFromInvoiceNumber,
+  resolveCompanyCode,
+} from '../utils/invoiceNumbering';
 
 export const SHARED_TEAM_OWNER_ID = 'shared_team';
+
+export interface InvoiceCounterRecord {
+  id: string;
+  companyCode: string;
+  companyName: string;
+  periodKey: string;
+  lastSequence: number;
+  lastInvoiceNumber: string;
+  updatedAtMs: number;
+}
 
 function safeStr(value: unknown, maxLen: number, fallback = ''): string {
   const str = typeof value === 'string' ? value : fallback;
@@ -509,5 +527,150 @@ export async function deleteCloudBankAccount(bankId: string): Promise<void> {
     await batch.commit();
   } catch (error) {
     handleFirestoreError(error, OperationType.DELETE, path);
+  }
+}
+
+// =========================================================================
+// Shared Per-PT Monthly Invoice Sequence Counters (Atomic Transactions)
+// =========================================================================
+export function subscribeInvoiceCounters(
+  onData: (counters: InvoiceCounterRecord[]) => void,
+  onError: (err: Error) => void
+): Unsubscribe {
+  const countersQuery = query(
+    collection(db, 'invoiceCounters'),
+    where('ownerId', '==', SHARED_TEAM_OWNER_ID),
+    limit(200)
+  );
+
+  return onSnapshot(
+    countersQuery,
+    (snapshot) => {
+      const records: InvoiceCounterRecord[] = snapshot.docs.map((docSnap) => {
+        const d = docSnap.data();
+        return {
+          id: docSnap.id,
+          companyCode: String(d.companyCode || 'INV'),
+          companyName: String(d.companyName || ''),
+          periodKey: String(d.periodKey || ''),
+          lastSequence: Number(d.lastSequence) || 0,
+          lastInvoiceNumber: String(d.lastInvoiceNumber || ''),
+          updatedAtMs: timestampToMs(d.updatedAt),
+        };
+      });
+      onData(records);
+    },
+    (error) => {
+      try {
+        handleFirestoreError(error, OperationType.LIST, 'invoiceCounters');
+      } catch (wrapped) {
+        onError(wrapped instanceof Error ? wrapped : new Error(String(wrapped)));
+      }
+    }
+  );
+}
+
+export async function reserveNextInvoiceNumber(
+  companyName: string,
+  minFloorSequence = 0,
+  periodKey: string = getCurrentPeriodKey()
+): Promise<{
+  invoiceNumber: string;
+  sequence: number;
+  companyCode: string;
+  periodKey: string;
+}> {
+  const companyCode = resolveCompanyCode(companyName);
+  const safePeriod = /^\d{4}-\d{2}$/.test(periodKey) ? periodKey : getCurrentPeriodKey();
+  const counterId = getCounterDocId(companyCode, safePeriod);
+  const path = `invoiceCounters/${counterId}`;
+  const safeCompanyName = safeStr(companyName.trim(), 200, '');
+  const safeFloor = Math.max(0, Math.min(999998, Math.floor(minFloorSequence || 0)));
+
+  try {
+    const result = await runTransaction(db, async (tx) => {
+      const counterRef = doc(db, 'invoiceCounters', counterId);
+      const snap = await tx.get(counterRef);
+      const currentSeq = snap.exists() ? Math.max(0, Math.floor(Number(snap.data().lastSequence) || 0)) : 0;
+      const nextSeq = Math.min(999999, Math.max(currentSeq, safeFloor) + 1);
+      const nextInvoiceNumber = formatProformaInvoiceNumber(companyCode, safePeriod, nextSeq);
+
+      if (!snap.exists()) {
+        tx.set(counterRef, {
+          ownerId: SHARED_TEAM_OWNER_ID,
+          companyCode,
+          companyName: safeCompanyName,
+          periodKey: safePeriod,
+          lastSequence: nextSeq,
+          lastInvoiceNumber: nextInvoiceNumber,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        tx.update(counterRef, {
+          companyName: safeCompanyName,
+          lastSequence: nextSeq,
+          lastInvoiceNumber: nextInvoiceNumber,
+          updatedAt: serverTimestamp(),
+        });
+      }
+
+      return {
+        invoiceNumber: nextInvoiceNumber,
+        sequence: nextSeq,
+        companyCode,
+        periodKey: safePeriod,
+      };
+    });
+
+    return result;
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function syncManualInvoiceNumberFloor(
+  companyName: string,
+  invoiceNumber: string,
+  periodKey: string = getCurrentPeriodKey()
+): Promise<void> {
+  const companyCode = resolveCompanyCode(companyName);
+  const safePeriod = /^\d{4}-\d{2}$/.test(periodKey) ? periodKey : getCurrentPeriodKey();
+  const parsedSeq = parseSequenceFromInvoiceNumber(invoiceNumber, companyCode, safePeriod);
+  if (parsedSeq <= 0 || parsedSeq > 999999) return;
+
+  const counterId = getCounterDocId(companyCode, safePeriod);
+  const safeCompanyName = safeStr(companyName.trim(), 200, '');
+  const safeInvoiceNumber = safeStr(invoiceNumber.trim(), 80, '');
+
+  try {
+    await runTransaction(db, async (tx) => {
+      const counterRef = doc(db, 'invoiceCounters', counterId);
+      const snap = await tx.get(counterRef);
+      const currentSeq = snap.exists() ? Math.max(0, Math.floor(Number(snap.data().lastSequence) || 0)) : 0;
+      if (parsedSeq <= currentSeq) return;
+
+      if (!snap.exists()) {
+        tx.set(counterRef, {
+          ownerId: SHARED_TEAM_OWNER_ID,
+          companyCode,
+          companyName: safeCompanyName,
+          periodKey: safePeriod,
+          lastSequence: parsedSeq,
+          lastInvoiceNumber: safeInvoiceNumber,
+          createdAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+      } else {
+        tx.update(counterRef, {
+          companyName: safeCompanyName,
+          lastSequence: parsedSeq,
+          lastInvoiceNumber: safeInvoiceNumber,
+          updatedAt: serverTimestamp(),
+        });
+      }
+    });
+  } catch {
+    // Non-fatal floor sync for manually entered numbers
   }
 }

@@ -1,8 +1,10 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   Download,
   Eye,
+  FilePlus2,
   History,
+  MessageCircle,
   PenLine,
   Printer,
   RotateCcw,
@@ -14,7 +16,9 @@ import { InvoiceLogsView } from './components/InvoiceLogsView';
 import { InvoicePreview } from './components/InvoicePreview';
 import { SalesPerformanceView } from './components/SalesPerformanceView';
 import { SavedDraftsView } from './components/SavedDraftsView';
+import { WhatsAppModal } from './components/WhatsAppModal';
 import {
+  CompanyLogoPreset,
   DEFAULT_BANK_ACCOUNTS,
   DEFAULT_COMPANY_PROFILE,
   DEFAULT_DOCUMENT_FOOTER,
@@ -27,9 +31,13 @@ import {
   deleteCloudBankAccount,
   deleteInvoiceLog,
   fetchInvoiceLogItems,
+  InvoiceCounterRecord,
+  reserveNextInvoiceNumber,
   saveCloudBankAccount,
   subscribeCloudBankAccounts,
+  subscribeInvoiceCounters,
   subscribeInvoiceLogs,
+  syncManualInvoiceNumberFloor,
   updateCloudBankAccount,
   updateInvoiceLogAction,
   updateInvoicePaymentStatus,
@@ -48,6 +56,19 @@ import {
 } from './types/invoice';
 import { calculateInvoiceTotals, formatTodayCityDate } from './utils/formatters';
 import { downloadProformaInvoicePdf } from './utils/generatePdf';
+import {
+  computeFloorSequenceFromLogs,
+  formatProformaInvoiceNumber,
+  getCounterDocId,
+  getCurrentPeriodKey,
+  isAutoFormatInvoiceNumber,
+  isDuplicateInvoiceNumber,
+  resolveCompanyCode,
+} from './utils/invoiceNumbering';
+import {
+  getDefaultTemplateForStatus,
+  WhatsAppTemplateMode,
+} from './utils/whatsappMessage';
 
 type ActiveTab = 'editor' | 'logs' | 'sales' | 'banks' | 'drafts';
 type MobilePane = 'edit' | 'preview';
@@ -92,6 +113,11 @@ export default function App() {
   const [previewScale, setPreviewScale] = useState<number>(0.85);
   const [isExporting, setIsExporting] = useState(false);
   const [notice, setNotice] = useState<string>('');
+  const [waModalState, setWaModalState] = useState<{
+    invoice: ProformaInvoiceData;
+    company: CompanyProfile;
+    initialMode: WhatsAppTemplateMode;
+  } | null>(null);
 
   // Shared Firebase Log & Bank State (no login required)
   const [adminName, setAdminName] = useState<string>(() =>
@@ -109,6 +135,9 @@ export default function App() {
   const [loadingLogs, setLoadingLogs] = useState(true);
   const [logsError, setLogsError] = useState('');
   const [cloudBanks, setCloudBanks] = useState<BankAccount[]>([]);
+  const [cloudCounters, setCloudCounters] = useState<InvoiceCounterRecord[]>([]);
+  const [isGeneratingNumber, setIsGeneratingNumber] = useState(false);
+  const reservedNumbersRef = useRef<Set<string>>(new Set());
 
   const [company, setCompany] = useState<CompanyProfile>(() => {
     const loaded = {
@@ -230,9 +259,19 @@ export default function App() {
       }
     );
 
+    const unsubCounters = subscribeInvoiceCounters(
+      (counters) => {
+        setCloudCounters(counters);
+      },
+      () => {
+        // Non-fatal fallback using logs floor
+      }
+    );
+
     return () => {
       unsubLogs();
       unsubBanks();
+      unsubCounters();
     };
   }, []);
 
@@ -291,17 +330,157 @@ export default function App() {
     setTimeout(() => setNotice(''), 3400);
   };
 
-  const combinedLogs: InvoiceLogRecord[] = [...cloudLogs, ...localLogs].sort(
-    (a, b) => b.createdAtMs - a.createdAtMs
+  const combinedLogs: InvoiceLogRecord[] = useMemo(
+    () => [...cloudLogs, ...localLogs].sort((a, b) => b.createdAtMs - a.createdAtMs),
+    [cloudLogs, localLogs]
   );
 
-  const buildLocalLogEntry = (actionType: InvoiceLogAction): InvoiceLogRecord => {
-    const totals = calculateInvoiceTotals(invoice);
+  const activePeriodKey = getCurrentPeriodKey();
+  const activeCompanyCode = useMemo(
+    () => resolveCompanyCode(company.name),
+    [company.name]
+  );
+
+  const getNextPreviewForCompany = (companyName: string): {
+    companyCode: string;
+    floorSeq: number;
+    nextNumber: string;
+  } => {
+    const code = resolveCompanyCode(companyName);
+    const counterId = getCounterDocId(code, activePeriodKey);
+    const counterDoc = cloudCounters.find((c) => c.id === counterId);
+    const counterSeq = counterDoc ? counterDoc.lastSequence : 0;
+    const logsFloorSeq = computeFloorSequenceFromLogs(combinedLogs, code, activePeriodKey);
+    const floorSeq = Math.max(counterSeq, logsFloorSeq);
+    return {
+      companyCode: code,
+      floorSeq,
+      nextNumber: formatProformaInvoiceNumber(code, activePeriodKey, floorSeq + 1),
+    };
+  };
+
+  const activeNumberInfo = useMemo(
+    () => getNextPreviewForCompany(company.name),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [company.name, cloudCounters, combinedLogs, activePeriodKey]
+  );
+
+  const isDuplicateCurrentNumber = useMemo(
+    () => isDuplicateInvoiceNumber(combinedLogs, invoice.invoiceNumber),
+    [combinedLogs, invoice.invoiceNumber]
+  );
+
+  const isCurrentNumberReserved = Boolean(
+    invoice.invoiceNumber.trim() &&
+      reservedNumbersRef.current.has(invoice.invoiceNumber.trim().toUpperCase())
+  );
+
+  const reserveAtomicNumberForCompany = async (companyName: string): Promise<string> => {
+    const info = getNextPreviewForCompany(companyName);
+    try {
+      const reserved = await reserveNextInvoiceNumber(
+        companyName,
+        info.floorSeq,
+        activePeriodKey
+      );
+      reservedNumbersRef.current.add(reserved.invoiceNumber.toUpperCase());
+      return reserved.invoiceNumber;
+    } catch {
+      // Offline fallback: increment locally beyond known floor
+      const fallbackNum = formatProformaInvoiceNumber(
+        info.companyCode,
+        activePeriodKey,
+        info.floorSeq + 1
+      );
+      reservedNumbersRef.current.add(fallbackNum.toUpperCase());
+      return fallbackNum;
+    }
+  };
+
+  const handleGenerateNextNumber = async () => {
+    if (isGeneratingNumber) return;
+    setIsGeneratingNumber(true);
+    try {
+      const nextNum = await reserveAtomicNumberForCompany(company.name);
+      setInvoice((prev) => ({
+        ...prev,
+        invoiceNumber: nextNum,
+        showInvoiceNumber: true,
+      }));
+      showNotice(`Nomor otomatis baru untuk ${activeCompanyCode}: ${nextNum}`);
+    } finally {
+      setIsGeneratingNumber(false);
+    }
+  };
+
+  const handleSelectCompanyPreset = (preset: CompanyLogoPreset) => {
+    setCompany((prev) => ({
+      ...prev,
+      logoDataUrl: preset.logoUrl,
+      logoWidthMm: preset.recommendedWidthMm,
+      name: preset.companyName,
+    }));
+
+    const matchedBank =
+      savedBanks.find((b) => b.id === preset.defaultBankId) ||
+      DEFAULT_BANK_ACCOUNTS.find((b) => b.id === preset.defaultBankId);
+
+    const nextForPreset = getNextPreviewForCompany(preset.companyName);
+
+    setInvoice((prev) => {
+      const currentNum = (prev.invoiceNumber || '').trim();
+      const shouldAutoSwitchNumber =
+        !currentNum ||
+        isDuplicateInvoiceNumber(combinedLogs, currentNum) ||
+        isAutoFormatInvoiceNumber(currentNum);
+
+      return {
+        ...prev,
+        bankAccount: matchedBank ? { ...matchedBank } : prev.bankAccount,
+        invoiceNumber: shouldAutoSwitchNumber ? nextForPreset.nextNumber : prev.invoiceNumber,
+      };
+    });
+  };
+
+  const ensureUniqueNumberBeforeCommit = async (
+    currentInvoice: ProformaInvoiceData
+  ): Promise<ProformaInvoiceData> => {
+    if (!currentInvoice.showInvoiceNumber) {
+      return currentInvoice;
+    }
+
+    const trimmed = (currentInvoice.invoiceNumber || '').trim();
+    const upperKey = trimmed.toUpperCase();
+    const alreadyReserved = Boolean(trimmed && reservedNumbersRef.current.has(upperKey));
+    const isDuplicate = isDuplicateInvoiceNumber(combinedLogs, trimmed);
+    const isUnreservedAuto = !alreadyReserved && isAutoFormatInvoiceNumber(trimmed);
+
+    if (!trimmed || isDuplicate || isUnreservedAuto) {
+      const assigned = await reserveAtomicNumberForCompany(company.name);
+      const updatedInvoice: ProformaInvoiceData = {
+        ...currentInvoice,
+        invoiceNumber: assigned,
+        showInvoiceNumber: true,
+      };
+      setInvoice(updatedInvoice);
+      return updatedInvoice;
+    }
+
+    // Respect user's custom or already-reserved number & bump counter floor if matching format
+    void syncManualInvoiceNumberFloor(company.name, trimmed, activePeriodKey);
+    return currentInvoice;
+  };
+
+  const buildLocalLogEntry = (
+    actionType: InvoiceLogAction,
+    targetInvoice: ProformaInvoiceData
+  ): InvoiceLogRecord => {
+    const totals = calculateInvoiceTotals(targetInvoice);
     const now = Date.now();
     const { items, ...restSnapshot } = JSON.parse(
-      JSON.stringify(invoice)
+      JSON.stringify(targetInvoice)
     ) as ProformaInvoiceData;
-    const cleanedSales = (invoice.salesName || '').trim();
+    const cleanedSales = (targetInvoice.salesName || '').trim();
     return {
       id: `local_log_${now}_${Math.random().toString(36).slice(2, 6)}`,
       ownerId: 'shared_team',
@@ -331,21 +510,28 @@ export default function App() {
   };
 
   const recordLogShared = async (
-    actionType: InvoiceLogAction
+    actionType: InvoiceLogAction,
+    targetInvoice: ProformaInvoiceData
   ): Promise<'firebase' | 'local'> => {
     try {
       await createInvoiceLog(
         adminName.trim() || 'Tim Admin',
-        invoice,
+        targetInvoice,
         company,
         footer,
         actionType,
         'pending'
       );
+      if (targetInvoice.invoiceNumber.trim()) {
+        reservedNumbersRef.current.delete(targetInvoice.invoiceNumber.trim().toUpperCase());
+      }
       return 'firebase';
     } catch {
-      const localEntry = buildLocalLogEntry(actionType);
+      const localEntry = buildLocalLogEntry(actionType, targetInvoice);
       setLocalLogs((prev) => [localEntry, ...prev].slice(0, 150));
+      if (targetInvoice.invoiceNumber.trim()) {
+        reservedNumbersRef.current.delete(targetInvoice.invoiceNumber.trim().toUpperCase());
+      }
       return 'local';
     }
   };
@@ -429,12 +615,18 @@ export default function App() {
     if (isExporting) return;
     setIsExporting(true);
     try {
-      const filename = await downloadProformaInvoicePdf(invoice, company, footer);
-      const savedTo = await recordLogShared('pdf_export');
-      const salesInfo = invoice.salesName ? ` (Sales: ${invoice.salesName})` : '';
+      const committedInvoice = await ensureUniqueNumberBeforeCommit(invoice);
+      const filename = await downloadProformaInvoicePdf(committedInvoice, company, footer);
+      const savedTo = await recordLogShared('pdf_export', committedInvoice);
+      const salesInfo = committedInvoice.salesName
+        ? ` (Sales: ${committedInvoice.salesName})`
+        : '';
+      const numInfo = committedInvoice.showInvoiceNumber && committedInvoice.invoiceNumber
+        ? ` [${committedInvoice.invoiceNumber}]`
+        : '';
       showNotice(
         savedTo === 'firebase'
-          ? `PDF diunduh & tercatat ke Log Firebase${salesInfo}: ${filename}`
+          ? `PDF diunduh & tercatat ke Log Firebase${numInfo}${salesInfo}: ${filename}`
           : `PDF diunduh & disimpan sementara di browser: ${filename}`
       );
     } catch {
@@ -445,18 +637,54 @@ export default function App() {
   };
 
   const handlePrint = async () => {
-    window.print();
-    await recordLogShared('print');
+    const committedInvoice = await ensureUniqueNumberBeforeCommit(invoice);
+    setTimeout(() => {
+      window.print();
+    }, 60);
+    await recordLogShared('print', committedInvoice);
   };
 
   const handleSaveToCloudLog = async () => {
-    const savedTo = await recordLogShared('manual_save');
-    const salesInfo = invoice.salesName ? ` untuk sales ${invoice.salesName}` : '';
+    const committedInvoice = await ensureUniqueNumberBeforeCommit(invoice);
+    const savedTo = await recordLogShared('manual_save', committedInvoice);
+    const salesInfo = committedInvoice.salesName
+      ? ` untuk sales ${committedInvoice.salesName}`
+      : '';
+    const numInfo = committedInvoice.showInvoiceNumber && committedInvoice.invoiceNumber
+      ? ` (${committedInvoice.invoiceNumber})`
+      : '';
     showNotice(
       savedTo === 'firebase'
-        ? `Proforma Invoice berhasil dicatat ke Log Firebase${salesInfo} (Status: Pending).`
+        ? `Proforma Invoice${numInfo} tercatat ke Log Firebase${salesInfo} (Status: Pending).`
         : 'Koneksi sedang terganggu; invoice disimpan sementara di browser.'
     );
+  };
+
+  const handleNewBlankInvoice = () => {
+    const nextNum = getNextPreviewForCompany(company.name).nextNumber;
+    setInvoice((prev) => ({
+      ...prev,
+      invoiceNumber: nextNum,
+      showInvoiceNumber: true,
+      cityDate: formatTodayCityDate(prev.cityDate),
+      buyerName: '',
+      buyerAddress: '',
+      shippingCost: 0,
+      depositAmount: 0,
+      additionalNote: '',
+      items: [
+        {
+          id: `item-${Date.now()}`,
+          namaBarang: '',
+          orderUnit: 'Sak',
+          weightPerUnit: 10,
+          harga: 0,
+          priceBasis: 'per_kg',
+          qty: 1,
+        },
+      ],
+    }));
+    showNotice(`Lembar invoice baru siap diisi (${nextNum}).`);
   };
 
   const handleSaveDraft = () => {
@@ -470,8 +698,11 @@ export default function App() {
   };
 
   const handleResetExample = () => {
+    const nextForDefault = getNextPreviewForCompany(DEFAULT_COMPANY_PROFILE.name).nextNumber;
     setInvoice({
       ...DEFAULT_INVOICE_DATA,
+      invoiceNumber: nextForDefault,
+      showInvoiceNumber: true,
       cityDate: formatTodayCityDate(),
     });
     setCompany((prev) => ({
@@ -575,6 +806,33 @@ export default function App() {
       }
     }
     showNotice(`PDF diunduh dari log: ${filename}`);
+  };
+
+  const handleOpenWhatsAppForEditor = () => {
+    setWaModalState({
+      invoice,
+      company,
+      initialMode: 'invoice',
+    });
+  };
+
+  const handleOpenWhatsAppForLog = async (
+    log: InvoiceLogRecord,
+    cachedItems?: InvoiceItem[]
+  ) => {
+    const items = cachedItems ?? (await handleFetchLogItems(log));
+    const fullInvoice: ProformaInvoiceData = {
+      ...DEFAULT_INVOICE_DATA,
+      ...log.invoiceSnapshot,
+      salesName: log.salesName,
+      showBestRegards: Boolean(log.salesName),
+      items,
+    };
+    setWaModalState({
+      invoice: fullInvoice,
+      company: log.companySnapshot,
+      initialMode: getDefaultTemplateForStatus(log.paymentStatus),
+    });
   };
 
   return (
@@ -715,10 +973,17 @@ export default function App() {
               company={company}
               footer={footer}
               savedBanks={savedBanks}
+              activeCompanyCode={activeCompanyCode}
+              nextInvoiceNumberPreview={activeNumberInfo.nextNumber}
+              isDuplicateNumber={isDuplicateCurrentNumber}
+              isCurrentNumberReserved={isCurrentNumberReserved}
+              isGeneratingNumber={isGeneratingNumber}
               onChangeInvoice={setInvoice}
               onChangeCompany={setCompany}
               onChangeFooter={setFooter}
               onSaveBankPreset={handleAddBankPreset}
+              onSelectCompanyPreset={handleSelectCompanyPreset}
+              onGenerateNextNumber={handleGenerateNextNumber}
             />
           </aside>
 
@@ -751,11 +1016,27 @@ export default function App() {
               <div className="flex flex-wrap items-center gap-2">
                 <button
                   type="button"
+                  onClick={handleNewBlankInvoice}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border border-emerald-300 bg-emerald-50 text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <FilePlus2 className="w-3.5 h-3.5" />
+                  Invoice Baru
+                </button>
+                <button
+                  type="button"
                   onClick={handleSaveToCloudLog}
                   className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border border-blue-200 bg-blue-50/70 text-[#1D4ED8] hover:bg-blue-100/70 transition-colors cursor-pointer whitespace-nowrap"
                 >
                   <History className="w-3.5 h-3.5" />
                   Simpan ke Log
+                </button>
+                <button
+                  type="button"
+                  onClick={handleOpenWhatsAppForEditor}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium rounded border border-emerald-300 bg-emerald-50/80 text-emerald-800 hover:bg-emerald-100 transition-colors cursor-pointer whitespace-nowrap"
+                >
+                  <MessageCircle className="w-3.5 h-3.5" />
+                  WhatsApp
                 </button>
                 <button
                   type="button"
@@ -836,6 +1117,7 @@ export default function App() {
               await deleteInvoiceLog(log.id);
               showNotice('Log dihapus permanen dari database bersama Firebase.');
             }}
+            onOpenWhatsApp={handleOpenWhatsAppForLog}
             onNotify={showNotice}
           />
         </main>
@@ -851,6 +1133,7 @@ export default function App() {
             onFetchLogItems={handleFetchLogItems}
             onLoadLogToEditor={handleLoadLogToEditor}
             onDownloadLogPdf={handleDownloadLogPdf}
+            onOpenWhatsApp={handleOpenWhatsAppForLog}
             onNotify={showNotice}
           />
         </main>
@@ -897,6 +1180,16 @@ export default function App() {
             }}
           />
         </main>
+      )}
+
+      {waModalState && (
+        <WhatsAppModal
+          invoice={waModalState.invoice}
+          company={waModalState.company}
+          initialMode={waModalState.initialMode}
+          onClose={() => setWaModalState(null)}
+          onNotify={showNotice}
+        />
       )}
     </div>
   );
