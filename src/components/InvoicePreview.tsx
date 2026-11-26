@@ -499,7 +499,9 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
         {footer.enabled && (
           <footer className="mt-10 pt-3 border-t border-slate-300 flex items-start justify-between gap-8 text-[11px] text-slate-700 leading-relaxed">
             <div className="text-left">
-              <div className="font-bold text-slate-900">{footer.companyName}</div>
+              <div className="font-bold text-slate-900">
+                {(company.name || '').trim() || footer.companyName}
+              </div>
               {footer.address && <div>{footer.address}</div>}
             </div>
 

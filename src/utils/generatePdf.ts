@@ -758,11 +758,12 @@ export async function buildProformaInvoicePdf(
       doc.setLineWidth(0.3);
       doc.line(marginX, lineY, pageWidth - marginX, lineY);
 
+      const footerCompanyName = (company.name || '').trim() || footer.companyName;
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8.5);
       doc.setTextColor(15, 23, 42);
-      if (footer.companyName) {
-        doc.text(footer.companyName, marginX, row1Y);
+      if (footerCompanyName) {
+        doc.text(footerCompanyName, marginX, row1Y);
       }
 
       doc.setFont('helvetica', 'normal');

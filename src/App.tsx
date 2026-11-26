@@ -188,10 +188,20 @@ export default function App() {
       logoDataUrl: normalizeLogoUrl(loaded.logoDataUrl),
     };
   });
-  const [footer, setFooter] = useState<DocumentFooter>(() => ({
-    ...DEFAULT_DOCUMENT_FOOTER,
-    ...loadFromStorage(STORAGE_KEYS.footer, DEFAULT_DOCUMENT_FOOTER),
-  }));
+  const [footer, setFooter] = useState<DocumentFooter>(() => {
+    const loadedFooter = {
+      ...DEFAULT_DOCUMENT_FOOTER,
+      ...loadFromStorage(STORAGE_KEYS.footer, DEFAULT_DOCUMENT_FOOTER),
+    };
+    const initialCompany = {
+      ...DEFAULT_COMPANY_PROFILE,
+      ...loadFromStorage(STORAGE_KEYS.company, DEFAULT_COMPANY_PROFILE),
+    };
+    return {
+      ...loadedFooter,
+      companyName: initialCompany.name || loadedFooter.companyName,
+    };
+  });
   const [invoice, setInvoice] = useState<ProformaInvoiceData>(() => {
     const loaded = {
       ...DEFAULT_INVOICE_DATA,
@@ -239,6 +249,13 @@ export default function App() {
       // Ignore storage quota errors
     }
   }, [company]);
+
+  // Automatically keep footer PT name synced with the active invoice PT name
+  useEffect(() => {
+    setFooter((prev) =>
+      prev.companyName === company.name ? prev : { ...prev, companyName: company.name }
+    );
+  }, [company.name]);
 
   useEffect(() => {
     try {
@@ -737,6 +754,10 @@ export default function App() {
       logoDataUrl: preset.logoUrl,
       logoWidthMm: preset.recommendedWidthMm,
       name: preset.companyName,
+    }));
+    setFooter((prev) => ({
+      ...prev,
+      companyName: preset.companyName,
     }));
 
     const matchedBank =
@@ -1325,12 +1346,17 @@ export default function App() {
     restoredFooter: DocumentFooter
   ) => {
     setInvoice({ ...DEFAULT_INVOICE_DATA, ...restoredInvoice });
+    const nextCompanyName = restoredCompany.name || DEFAULT_COMPANY_PROFILE.name;
     setCompany((prev) => ({
       ...DEFAULT_COMPANY_PROFILE,
       ...restoredCompany,
       logoDataUrl: normalizeLogoUrl(restoredCompany.logoDataUrl || prev.logoDataUrl),
     }));
-    setFooter({ ...DEFAULT_DOCUMENT_FOOTER, ...restoredFooter });
+    setFooter({
+      ...DEFAULT_DOCUMENT_FOOTER,
+      ...restoredFooter,
+      companyName: nextCompanyName,
+    });
     setActiveTab('editor');
     showNotice('Data Proforma Invoice dari log dimuat ke editor.');
   };

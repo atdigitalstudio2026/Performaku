@@ -59,7 +59,7 @@ export const DEFAULT_COMPANY_PROFILE: CompanyProfile = {
 
 export const DEFAULT_DOCUMENT_FOOTER: DocumentFooter = {
   enabled: true,
-  companyName: 'PT Exindokarsa Agung',
+  companyName: DEFAULT_COMPANY_PROFILE.name,
   address: 'Jl Raya Bekasi Timur No. 136',
   phone: 'P +62 21 819 1908',
   fax: 'F +62 21 851 7193',
