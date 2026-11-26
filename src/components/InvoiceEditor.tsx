@@ -1,7 +1,8 @@
-import React, { useRef, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import {
   Building2,
   CreditCard,
+  Database,
   FileText,
   ImagePlus,
   Package,
@@ -22,12 +23,15 @@ import {
 import {
   BankAccount,
   CompanyProfile,
+  CustomerRecord,
   DocumentFooter,
   InvoiceItem,
   PpnMode,
   PriceBasis,
+  ProductRecord,
   ProformaInvoiceData,
 } from '../types/invoice';
+import { AutocompleteInput, AutocompleteOption } from './AutocompleteInput';
 import {
   calculateInvoiceTotals,
   calculateItemMetrics,
@@ -42,6 +46,8 @@ interface InvoiceEditorProps {
   company: CompanyProfile;
   footer: DocumentFooter;
   savedBanks: BankAccount[];
+  savedCustomers: CustomerRecord[];
+  savedProducts: ProductRecord[];
   activeCompanyCode: string;
   nextInvoiceNumberPreview: string;
   isDuplicateNumber: boolean;
@@ -53,6 +59,8 @@ interface InvoiceEditorProps {
   onSaveBankPreset: (bank: BankAccount) => void;
   onSelectCompanyPreset: (preset: CompanyLogoPreset) => void;
   onGenerateNextNumber: () => Promise<void>;
+  onRememberCustomer: (input: { name: string; address?: string; defaultSalesName?: string }) => void;
+  onRememberProduct: (item: InvoiceItem) => void;
 }
 
 export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
@@ -60,6 +68,8 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
   company,
   footer,
   savedBanks,
+  savedCustomers,
+  savedProducts,
   activeCompanyCode,
   nextInvoiceNumberPreview,
   isDuplicateNumber,
@@ -71,11 +81,50 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
   onSaveBankPreset,
   onSelectCompanyPreset,
   onGenerateNextNumber,
+  onRememberCustomer,
+  onRememberProduct,
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const [showColumnSettings, setShowColumnSettings] = useState(false);
   const [logoError, setLogoError] = useState('');
   const [bankSavedNotice, setBankSavedNotice] = useState(false);
+
+  const customerOptions: AutocompleteOption<CustomerRecord>[] = useMemo(
+    () =>
+      savedCustomers.map((c) => ({
+        id: c.id,
+        label: c.name,
+        sublabel: [c.address, c.defaultSalesName ? `Sales: ${c.defaultSalesName}` : '']
+          .filter(Boolean)
+          .join(' · '),
+        metaRight: c.usageCount > 1 ? `${c.usageCount}x` : 'Tersimpan',
+        searchText: `${c.name} ${c.address} ${c.defaultSalesName}`,
+        data: c,
+      })),
+    [savedCustomers]
+  );
+
+  const productOptions: AutocompleteOption<ProductRecord>[] = useMemo(
+    () =>
+      savedProducts.map((p) => {
+        const isKg = p.orderUnit.toLowerCase() === 'kg';
+        const suffix = isKg ? 'kg' : p.priceBasis === 'per_unit' ? p.orderUnit : 'kg';
+        return {
+          id: p.id,
+          label: p.name,
+          sublabel: isKg
+            ? 'Satuan: Kg'
+            : `${p.orderUnit} (${formatWeight(p.weightPerUnit, invoice.numberFormat)} kg/${p.orderUnit})`,
+          metaRight:
+            p.harga > 0
+              ? `${invoice.currency} ${formatAmount(p.harga, invoice.numberFormat)}/${suffix}`
+              : `${p.usageCount}x`,
+          searchText: `${p.name} ${p.orderUnit}`,
+          data: p,
+        };
+      }),
+    [savedProducts, invoice.currency, invoice.numberFormat]
+  );
 
   const handleLogoUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -578,13 +627,41 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
           </div>
 
           <div className="sm:col-span-2">
-            <label className="block text-xs font-medium text-slate-700 mb-1">Nama Pembeli</label>
-            <input
-              type="text"
+            <div className="flex items-center justify-between gap-2 mb-1">
+              <label className="text-xs font-medium text-slate-700">Nama Pembeli (Customer)</label>
+              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500">
+                <Database className="w-3 h-3 text-emerald-600" />
+                Auto-memori ({savedCustomers.length} tersimpan)
+              </span>
+            </div>
+            <AutocompleteInput<CustomerRecord>
               value={invoice.buyerName}
-              onChange={(e) => onChangeInvoice({ ...invoice, buyerName: e.target.value })}
-              placeholder="Ryuu Industry Indonesia"
-              className="w-full px-3 py-2 text-sm rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+              onChange={(val) => onChangeInvoice({ ...invoice, buyerName: val })}
+              onSelectOption={(opt) => {
+                const chosen = opt.data;
+                onChangeInvoice({
+                  ...invoice,
+                  buyerName: chosen.name,
+                  buyerAddress: chosen.address || invoice.buyerAddress,
+                  salesName:
+                    !invoice.salesName && chosen.defaultSalesName
+                      ? chosen.defaultSalesName
+                      : invoice.salesName,
+                });
+              }}
+              onCommitBlur={(val) => {
+                if (val.trim().length >= 2) {
+                  onRememberCustomer({
+                    name: val,
+                    address: invoice.buyerAddress,
+                    defaultSalesName: invoice.salesName,
+                  });
+                }
+              }}
+              options={customerOptions}
+              placeholder="Ketik nama customer (otomatis memunculkan data tersimpan)"
+              emptyHint="Customer baru — akan otomatis tersimpan ke Database Customer."
+              inputClassName="w-full px-3 py-2 text-sm rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
             />
           </div>
 
@@ -596,6 +673,15 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
               rows={2}
               value={invoice.buyerAddress}
               onChange={(e) => onChangeInvoice({ ...invoice, buyerAddress: e.target.value })}
+              onBlur={() => {
+                if (invoice.buyerName.trim().length >= 2) {
+                  onRememberCustomer({
+                    name: invoice.buyerName,
+                    address: invoice.buyerAddress,
+                    defaultSalesName: invoice.salesName,
+                  });
+                }
+              }}
               placeholder="Kosongkan jika hanya ingin menampilkan nama pembeli"
               className="w-full px-3 py-2 text-sm rounded-md border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8] resize-none"
             />
@@ -649,6 +735,10 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
           <div className="flex items-center gap-2 text-slate-900">
             <Package className="w-4 h-4 text-slate-500" />
             <h2 className="text-sm font-semibold tracking-tight">Daftar Barang</h2>
+            <span className="inline-flex items-center gap-1 text-[10px] font-medium text-slate-500 bg-slate-100 px-1.5 py-0.5 rounded">
+              <Database className="w-2.5 h-2.5 text-emerald-600" />
+              {savedProducts.length} barang
+            </span>
           </div>
 
           <button
@@ -872,14 +962,31 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                 <div className="grid grid-cols-12 gap-2">
                   <div className="col-span-12">
                     <label className="block text-[11px] font-medium text-slate-600 mb-1">
-                      Nama Barang
+                      Nama Barang (ketik untuk memanggil dari database)
                     </label>
-                    <input
-                      type="text"
+                    <AutocompleteInput<ProductRecord>
                       value={item.namaBarang}
-                      onChange={(e) => updateItem(item.id, { namaBarang: e.target.value })}
+                      onChange={(val) => updateItem(item.id, { namaBarang: val })}
+                      onSelectOption={(opt) => {
+                        const prod = opt.data;
+                        const prodIsKg = prod.orderUnit.toLowerCase() === 'kg';
+                        updateItem(item.id, {
+                          namaBarang: prod.name,
+                          orderUnit: prod.orderUnit,
+                          weightPerUnit: prodIsKg ? 1 : prod.weightPerUnit,
+                          harga: prod.harga,
+                          priceBasis: prodIsKg ? 'per_kg' : prod.priceBasis,
+                        });
+                      }}
+                      onCommitBlur={(val) => {
+                        if (val.trim().length >= 2) {
+                          onRememberProduct({ ...item, namaBarang: val });
+                        }
+                      }}
+                      options={productOptions}
                       placeholder="Contoh: Wijen Hitam Akram 10kg"
-                      className="w-full px-2.5 py-1.5 text-sm rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+                      emptyHint="Barang baru — nama, satuan, berat & harga akan otomatis tersimpan."
+                      inputClassName="w-full px-2.5 py-1.5 text-sm rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
                     />
                   </div>
 
@@ -907,7 +1014,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                       onChange={(e) => {
                         const nextUnit = e.target.value;
                         const nextIsKg = nextUnit.toLowerCase() === 'kg';
-                        updateItem(item.id, {
+                        const nextPatch: Partial<InvoiceItem> = {
                           orderUnit: nextUnit,
                           weightPerUnit: nextIsKg
                             ? 1
@@ -915,7 +1022,11 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                             ? 10
                             : m.weightPerUnit,
                           priceBasis: nextIsKg ? 'per_kg' : m.priceBasis,
-                        });
+                        };
+                        updateItem(item.id, nextPatch);
+                        if (item.namaBarang.trim().length >= 2) {
+                          onRememberProduct({ ...item, ...nextPatch });
+                        }
                       }}
                       className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
                     >
@@ -942,6 +1053,11 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                       onChange={(e) =>
                         updateItem(item.id, { weightPerUnit: Number(e.target.value) || 0 })
                       }
+                      onBlur={() => {
+                        if (item.namaBarang.trim().length >= 2) {
+                          onRememberProduct(item);
+                        }
+                      }}
                       placeholder="10"
                       className="w-full px-2.5 py-1.5 text-sm font-mono tabular-nums rounded border border-slate-300 bg-white disabled:bg-slate-100 disabled:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
                     />
@@ -956,6 +1072,11 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                       min={0}
                       value={item.harga === 0 ? '' : item.harga}
                       onChange={(e) => updateItem(item.id, { harga: Number(e.target.value) || 0 })}
+                      onBlur={() => {
+                        if (item.namaBarang.trim().length >= 2) {
+                          onRememberProduct(item);
+                        }
+                      }}
                       placeholder="59000"
                       className="w-full px-2.5 py-1.5 text-sm font-mono tabular-nums rounded border border-slate-300 bg-white focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
                     />
@@ -968,9 +1089,13 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                     <select
                       value={m.priceBasis}
                       disabled={isKgOrder}
-                      onChange={(e) =>
-                        updateItem(item.id, { priceBasis: e.target.value as PriceBasis })
-                      }
+                      onChange={(e) => {
+                        const nextBasis = e.target.value as PriceBasis;
+                        updateItem(item.id, { priceBasis: nextBasis });
+                        if (item.namaBarang.trim().length >= 2) {
+                          onRememberProduct({ ...item, priceBasis: nextBasis });
+                        }
+                      }}
                       className="w-full px-2 py-1.5 text-sm rounded border border-slate-300 bg-white disabled:bg-slate-100 disabled:text-slate-500 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
                     >
                       <option value="per_kg">Per Kg</option>

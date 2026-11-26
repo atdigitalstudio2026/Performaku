@@ -10,7 +10,7 @@ service cloud.firestore {
     // Global Hardened Primitives (Shared Team Workspace — No Login Required)
     // =========================================================================
     function isValidId(id) {
-      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
     }
 
     function incoming() {
@@ -22,15 +22,15 @@ service cloud.firestore {
     }
 
     function isSharedTeamOwner(ownerId) {
-      return ownerId is string && ownerId == 'shared_team';
+      return ownerId == 'shared_team';
     }
 
     // =========================================================================
-    // Nested Map Validation Helpers
+    // Nested Map Validation Helpers (Expression-Budget Optimized < 1000 CEL limit)
     // =========================================================================
     function isValidBankMap(bank) {
       return bank is map
-        && bank.keys().hasAll(['id', 'bankName', 'bankShortName', 'accountHolder', 'accountNumber'])
+        && bank.size() == 5
         && bank.keys().hasOnly(['id', 'bankName', 'bankShortName', 'accountHolder', 'accountNumber'])
         && bank.id is string && bank.id.size() <= 128
         && bank.bankName is string && bank.bankName.size() <= 80
@@ -41,10 +41,7 @@ service cloud.firestore {
 
     function isValidCompanyMap(comp) {
       return comp is map
-        && comp.keys().hasAll([
-          'name', 'addressLine1', 'addressLine2', 'phone', 'email',
-          'logoDataUrl', 'logoWidthMm', 'showLetterheadInfo', 'showLetterheadDivider'
-        ])
+        && comp.size() == 9
         && comp.keys().hasOnly([
           'name', 'addressLine1', 'addressLine2', 'phone', 'email',
           'logoDataUrl', 'logoWidthMm', 'showLetterheadInfo', 'showLetterheadDivider'
@@ -55,14 +52,14 @@ service cloud.firestore {
         && comp.phone is string && comp.phone.size() <= 80
         && comp.email is string && comp.email.size() <= 120
         && comp.logoDataUrl is string && comp.logoDataUrl.size() <= 100000
-        && comp.logoWidthMm is number && comp.logoWidthMm >= 10 && comp.logoWidthMm <= 120
+        && comp.logoWidthMm >= 10 && comp.logoWidthMm <= 120
         && comp.showLetterheadInfo is bool
         && comp.showLetterheadDivider is bool;
     }
 
     function isValidFooterMap(ftr) {
       return ftr is map
-        && ftr.keys().hasAll(['enabled', 'companyName', 'address', 'phone', 'fax'])
+        && ftr.size() == 5
         && ftr.keys().hasOnly(['enabled', 'companyName', 'address', 'phone', 'fax'])
         && ftr.enabled is bool
         && ftr.companyName is string && ftr.companyName.size() <= 200
@@ -72,21 +69,10 @@ service cloud.firestore {
     }
 
     // =========================================================================
-    // Entity Validation Blueprints (Anti-Update-Gap)
+    // Entity Validation Blueprints (Anti-Update-Gap & < 1000 CEL Expression Cap)
     // =========================================================================
     function isValidInvoiceLog(data) {
-      return data.keys().hasAll([
-          'ownerId', 'ownerEmail', 'ownerName', 'actionType', 'status',
-          'title', 'cityDate', 'invoiceNumber', 'showInvoiceNumber',
-          'buyerName', 'buyerAddress', 'sellerName', 'currency', 'numberFormat',
-          'ppnMode', 'ppnRate', 'qtyHeader', 'priceHeader', 'taxLabel', 'qtyUnit',
-          'tableHeaderColor', 'depositAmount', 'depositLabel', 'additionalNote',
-          'highlightTransferTotal', 'showSignature', 'signatureName', 'signatureTitle',
-          'itemCount', 'totalWeightKg', 'subtotal', 'ppnAmount', 'grandTotal',
-          'appliedDeposit', 'netPayable', 'bankAccount', 'companySnapshot',
-          'footerSnapshot', 'createdAt', 'updatedAt'
-        ])
-        && data.keys().hasOnly([
+      return data.keys().hasOnly([
           'ownerId', 'ownerEmail', 'ownerName', 'actionType', 'status',
           'salesName', 'paymentStatus', 'paidAtDate', 'paymentNote',
           'title', 'cityDate', 'invoiceNumber', 'showInvoiceNumber',
@@ -98,14 +84,14 @@ service cloud.firestore {
           'appliedDeposit', 'netPayable', 'bankAccount', 'companySnapshot',
           'footerSnapshot', 'createdAt', 'updatedAt'
         ])
-        && isSharedTeamOwner(data.ownerId)
+        && data.ownerId == 'shared_team'
         && data.ownerEmail is string && data.ownerEmail.size() <= 200
         && data.ownerName is string && data.ownerName.size() <= 120
-        && data.actionType is string && data.actionType in ['manual_save', 'pdf_export', 'print', 'restored']
-        && data.status is string && data.status in ['active', 'archived']
+        && data.actionType in ['manual_save', 'pdf_export', 'print', 'restored']
+        && data.status in ['active', 'archived']
         && (!('salesName' in data) || (data.salesName is string && data.salesName.size() <= 120))
-        && (!('paymentStatus' in data) || (data.paymentStatus is string && data.paymentStatus in ['pending', 'paid', 'cancelled']))
-        && (!('paidAtDate' in data) || (data.paidAtDate is string && (data.paidAtDate.size() == 0 || (data.paidAtDate.size() == 10 && data.paidAtDate.matches('^\\d{4}-\\d{2}-\\d{2}$')))))
+        && (!('paymentStatus' in data) || data.paymentStatus in ['pending', 'paid', 'cancelled'])
+        && (!('paidAtDate' in data) || (data.paidAtDate is string && data.paidAtDate.size() <= 10 && data.paidAtDate.matches('^([0-9]{4}-[0-9]{2}-[0-9]{2})?$')))
         && (!('paymentNote' in data) || (data.paymentNote is string && data.paymentNote.size() <= 300))
         && data.title is string && data.title.size() >= 1 && data.title.size() <= 100
         && data.cityDate is string && data.cityDate.size() <= 100
@@ -115,18 +101,18 @@ service cloud.firestore {
         && data.buyerAddress is string && data.buyerAddress.size() <= 500
         && data.sellerName is string && data.sellerName.size() <= 200
         && data.currency is string && data.currency.size() >= 1 && data.currency.size() <= 10
-        && data.numberFormat is string && data.numberFormat in ['comma', 'dot']
-        && data.ppnMode is string && data.ppnMode in ['include', 'exclude_add', 'non_ppn']
-        && data.ppnRate is number && data.ppnRate >= 0 && data.ppnRate <= 100
+        && data.numberFormat in ['comma', 'dot']
+        && data.ppnMode in ['include', 'exclude_add', 'non_ppn']
+        && data.ppnRate >= 0 && data.ppnRate <= 100
         && data.qtyHeader is string && data.qtyHeader.size() <= 50
         && data.priceHeader is string && data.priceHeader.size() <= 50
         && data.taxLabel is string && data.taxLabel.size() <= 50
         && data.qtyUnit is string && data.qtyUnit.size() <= 30
-        && data.tableHeaderColor is string && data.tableHeaderColor.size() == 7
+        && data.tableHeaderColor is string && data.tableHeaderColor.size() <= 7
         && data.tableHeaderColor.matches('^#[0-9a-fA-F]{6}$')
-        && (!('shippingCost' in data) || (data.shippingCost is number && data.shippingCost >= 0))
+        && (!('shippingCost' in data) || data.shippingCost >= 0)
         && (!('shippingLabel' in data) || (data.shippingLabel is string && data.shippingLabel.size() <= 100))
-        && data.depositAmount is number && data.depositAmount >= 0
+        && data.depositAmount >= 0
         && data.depositLabel is string && data.depositLabel.size() <= 100
         && data.additionalNote is string && data.additionalNote.size() <= 1000
         && data.highlightTransferTotal is bool
@@ -134,12 +120,12 @@ service cloud.firestore {
         && data.signatureName is string && data.signatureName.size() <= 100
         && data.signatureTitle is string && data.signatureTitle.size() <= 120
         && data.itemCount is int && data.itemCount >= 0 && data.itemCount <= 200
-        && data.totalWeightKg is number && data.totalWeightKg >= 0
-        && data.subtotal is number && data.subtotal >= 0
-        && data.ppnAmount is number && data.ppnAmount >= 0
-        && data.grandTotal is number && data.grandTotal >= 0
-        && data.appliedDeposit is number && data.appliedDeposit >= 0
-        && data.netPayable is number && data.netPayable >= 0
+        && data.totalWeightKg >= 0
+        && data.subtotal >= 0
+        && data.ppnAmount >= 0
+        && data.grandTotal >= 0
+        && data.appliedDeposit >= 0
+        && data.netPayable >= 0
         && isValidBankMap(data.bankAccount)
         && isValidCompanyMap(data.companySnapshot)
         && isValidFooterMap(data.footerSnapshot)
@@ -148,36 +134,30 @@ service cloud.firestore {
     }
 
     function isValidInvoiceLogItem(data, logId) {
-      return data.keys().hasAll([
-          'ownerId', 'logId', 'orderIndex', 'namaBarang',
-          'orderUnit', 'weightPerUnit', 'harga', 'priceBasis', 'qty', 'createdAt'
-        ])
+      return data.size() == 10
         && data.keys().hasOnly([
           'ownerId', 'logId', 'orderIndex', 'namaBarang',
           'orderUnit', 'weightPerUnit', 'harga', 'priceBasis', 'qty', 'createdAt'
         ])
-        && isSharedTeamOwner(data.ownerId)
-        && data.logId is string && data.logId == logId
+        && data.ownerId == 'shared_team'
+        && data.logId == logId
         && data.orderIndex is int && data.orderIndex >= 0 && data.orderIndex <= 500
         && data.namaBarang is string && data.namaBarang.size() <= 200
         && data.orderUnit is string && data.orderUnit.size() >= 1 && data.orderUnit.size() <= 30
-        && data.weightPerUnit is number && data.weightPerUnit >= 0
-        && data.harga is number && data.harga >= 0
-        && data.priceBasis is string && data.priceBasis in ['per_kg', 'per_unit']
-        && data.qty is number && data.qty >= 0
+        && data.weightPerUnit >= 0
+        && data.harga >= 0
+        && data.priceBasis in ['per_kg', 'per_unit']
+        && data.qty >= 0
         && data.createdAt is timestamp;
     }
 
     function isValidBankAccountRecord(data) {
-      return data.keys().hasAll([
-          'ownerId', 'bankName', 'bankShortName', 'accountHolder',
-          'accountNumber', 'createdAt', 'updatedAt'
-        ])
+      return data.size() == 7
         && data.keys().hasOnly([
           'ownerId', 'bankName', 'bankShortName', 'accountHolder',
           'accountNumber', 'createdAt', 'updatedAt'
         ])
-        && isSharedTeamOwner(data.ownerId)
+        && data.ownerId == 'shared_team'
         && data.bankName is string && data.bankName.size() >= 1 && data.bankName.size() <= 80
         && data.bankShortName is string && data.bankShortName.size() >= 1 && data.bankShortName.size() <= 40
         && data.accountHolder is string && data.accountHolder.size() >= 1 && data.accountHolder.size() <= 150
@@ -187,22 +167,54 @@ service cloud.firestore {
     }
 
     function isValidInvoiceCounter(data) {
-      return data.keys().hasAll([
-          'ownerId', 'companyCode', 'companyName', 'periodKey',
-          'lastSequence', 'lastInvoiceNumber', 'createdAt', 'updatedAt'
-        ])
+      return data.size() == 8
         && data.keys().hasOnly([
           'ownerId', 'companyCode', 'companyName', 'periodKey',
           'lastSequence', 'lastInvoiceNumber', 'createdAt', 'updatedAt'
         ])
-        && isSharedTeamOwner(data.ownerId)
+        && data.ownerId == 'shared_team'
         && data.companyCode is string && data.companyCode.size() >= 1 && data.companyCode.size() <= 16
         && data.companyCode.matches('^[A-Z0-9]+$')
         && data.companyName is string && data.companyName.size() <= 200
         && data.periodKey is string && data.periodKey.size() == 7
-        && data.periodKey.matches('^\\d{4}-\\d{2}$')
+        && data.periodKey.matches('^[0-9]{4}-[0-9]{2}$')
         && data.lastSequence is int && data.lastSequence >= 0 && data.lastSequence <= 999999
         && data.lastInvoiceNumber is string && data.lastInvoiceNumber.size() <= 80
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidCustomerRecord(data) {
+      return data.size() == 8
+        && data.keys().hasOnly([
+          'ownerId', 'name', 'normalizedName', 'address',
+          'defaultSalesName', 'usageCount', 'createdAt', 'updatedAt'
+        ])
+        && data.ownerId == 'shared_team'
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 200
+        && data.normalizedName is string && data.normalizedName.size() >= 1 && data.normalizedName.size() <= 200
+        && data.address is string && data.address.size() <= 500
+        && data.defaultSalesName is string && data.defaultSalesName.size() <= 120
+        && data.usageCount is int && data.usageCount >= 1 && data.usageCount <= 999999
+        && data.createdAt is timestamp
+        && data.updatedAt is timestamp;
+    }
+
+    function isValidProductRecord(data) {
+      return data.size() == 10
+        && data.keys().hasOnly([
+          'ownerId', 'name', 'normalizedName', 'orderUnit',
+          'weightPerUnit', 'harga', 'priceBasis', 'usageCount',
+          'createdAt', 'updatedAt'
+        ])
+        && data.ownerId == 'shared_team'
+        && data.name is string && data.name.size() >= 1 && data.name.size() <= 200
+        && data.normalizedName is string && data.normalizedName.size() >= 1 && data.normalizedName.size() <= 200
+        && data.orderUnit is string && data.orderUnit.size() >= 1 && data.orderUnit.size() <= 30
+        && data.weightPerUnit >= 0
+        && data.harga >= 0
+        && data.priceBasis in ['per_kg', 'per_unit']
+        && data.usageCount is int && data.usageCount >= 1 && data.usageCount <= 999999
         && data.createdAt is timestamp
         && data.updatedAt is timestamp;
     }
@@ -219,9 +231,6 @@ service cloud.firestore {
 
       allow create: if isValidId(logId)
         && isValidInvoiceLog(incoming())
-        && incoming().keys().hasAll([
-          'shippingCost', 'shippingLabel', 'salesName', 'paymentStatus', 'paidAtDate', 'paymentNote'
-        ])
         && incoming().status == 'active'
         && incoming().createdAt == request.time
         && incoming().updatedAt == request.time;
@@ -239,11 +248,7 @@ service cloud.firestore {
           ||
           (incoming().diff(existing()).affectedKeys().hasOnly(['actionType', 'updatedAt']))
           ||
-          (incoming().diff(existing()).affectedKeys().hasOnly(['paymentStatus', 'updatedAt']))
-          ||
           (incoming().diff(existing()).affectedKeys().hasOnly(['paymentStatus', 'paidAtDate', 'paymentNote', 'updatedAt']))
-          ||
-          (incoming().diff(existing()).affectedKeys().hasOnly(['paidAtDate', 'paymentNote', 'updatedAt']))
           ||
           (incoming().diff(existing()).affectedKeys().hasOnly(['salesName', 'updatedAt']))
         );
@@ -261,8 +266,13 @@ service cloud.firestore {
           && isValidId(itemId)
           && isValidInvoiceLogItem(incoming(), logId)
           && incoming().createdAt == request.time
-          && existsAfter(/databases/$(database)/documents/invoiceLogs/$(logId))
-          && isSharedTeamOwner(getAfter(/databases/$(database)/documents/invoiceLogs/$(logId)).data.ownerId);
+          && (
+            (existsAfter(/databases/$(database)/documents/invoiceLogs/$(logId))
+              && isSharedTeamOwner(getAfter(/databases/$(database)/documents/invoiceLogs/$(logId)).data.ownerId))
+            ||
+            (exists(/databases/$(database)/documents/invoiceLogs/$(logId))
+              && isSharedTeamOwner(get(/databases/$(database)/documents/invoiceLogs/$(logId)).data.ownerId))
+          );
 
         allow update: if false;
 
@@ -321,6 +331,57 @@ service cloud.firestore {
         ]);
 
       allow delete: if false;
+    }
+
+    // 4. Shared Auto-Learning Customer Master Database
+    match /customers/{customerId} {
+      allow get: if isValidId(customerId)
+        && (resource == null || isSharedTeamOwner(existing().ownerId));
+
+      allow list: if isSharedTeamOwner(existing().ownerId);
+
+      allow create: if isValidId(customerId)
+        && isValidCustomerRecord(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(customerId)
+        && isValidCustomerRecord(incoming())
+        && isSharedTeamOwner(existing().ownerId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'normalizedName', 'address', 'defaultSalesName', 'usageCount', 'updatedAt'
+        ]);
+
+      allow delete: if isValidId(customerId) && isSharedTeamOwner(existing().ownerId);
+    }
+
+    // 5. Shared Auto-Learning Product Master Database
+    match /products/{productId} {
+      allow get: if isValidId(productId)
+        && (resource == null || isSharedTeamOwner(existing().ownerId));
+
+      allow list: if isSharedTeamOwner(existing().ownerId);
+
+      allow create: if isValidId(productId)
+        && isValidProductRecord(incoming())
+        && incoming().createdAt == request.time
+        && incoming().updatedAt == request.time;
+
+      allow update: if isValidId(productId)
+        && isValidProductRecord(incoming())
+        && isSharedTeamOwner(existing().ownerId)
+        && incoming().ownerId == existing().ownerId
+        && incoming().createdAt == existing().createdAt
+        && incoming().updatedAt == request.time
+        && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'normalizedName', 'orderUnit', 'weightPerUnit',
+          'harga', 'priceBasis', 'usageCount', 'updatedAt'
+        ]);
+
+      allow delete: if isValidId(productId) && isSharedTeamOwner(existing().ownerId);
     }
   }
 }

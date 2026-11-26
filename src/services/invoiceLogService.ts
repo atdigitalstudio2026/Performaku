@@ -50,9 +50,27 @@ export interface InvoiceCounterRecord {
   updatedAtMs: number;
 }
 
-function safeStr(value: unknown, maxLen: number, fallback = ''): string {
+const utf8Encoder = typeof TextEncoder !== 'undefined' ? new TextEncoder() : null;
+
+function utf8ByteLength(str: string): number {
+  return utf8Encoder ? utf8Encoder.encode(str).length : str.length;
+}
+
+function safeStr(value: unknown, maxBytes: number, fallback = ''): string {
   const str = typeof value === 'string' ? value : fallback;
-  return str.slice(0, maxLen);
+  if (!utf8Encoder) return str.slice(0, maxBytes);
+  if (utf8Encoder.encode(str).length <= maxBytes) return str;
+  let low = 0;
+  let high = Math.min(str.length, maxBytes);
+  while (low < high) {
+    const mid = Math.ceil((low + high) / 2);
+    if (utf8Encoder.encode(str.slice(0, mid)).length <= maxBytes) {
+      low = mid;
+    } else {
+      high = mid - 1;
+    }
+  }
+  return str.slice(0, low);
 }
 
 function safeNonNegNum(value: unknown, fallback = 0): number {
@@ -60,42 +78,44 @@ function safeNonNegNum(value: unknown, fallback = 0): number {
   return Number.isFinite(n) && n >= 0 ? n : fallback;
 }
 
-function sanitizeBankMap(bank: BankAccount): BankAccount {
+function sanitizeBankMap(bank?: Partial<BankAccount> | null): BankAccount {
+  const b = bank || {};
   return {
-    id: safeStr(bank.id || 'bank-custom', 128, 'bank-custom'),
-    bankName: safeStr(bank.bankName, 80, 'BANK'),
-    bankShortName: safeStr(bank.bankShortName, 40, 'BANK'),
-    accountHolder: safeStr(bank.accountHolder, 150, '-'),
-    accountNumber: safeStr(bank.accountNumber, 50, '-'),
+    id: safeStr(b.id || 'bank-custom', 128, 'bank-custom') || 'bank-custom',
+    bankName: safeStr(b.bankName, 80, 'BANK'),
+    bankShortName: safeStr(b.bankShortName, 40, 'BANK'),
+    accountHolder: safeStr(b.accountHolder, 150, '-'),
+    accountNumber: safeStr(b.accountNumber, 50, '-'),
   };
 }
 
-function sanitizeCompanyMap(company: CompanyProfile): CompanyProfile {
-  const rawLogo = safeStr(company.logoDataUrl, 95000, '');
-  // If user uploaded a large base64 image exceeding Firestore limit, omit from cloud snapshot
-  const safeLogo =
-    company.logoDataUrl && company.logoDataUrl.length > 95000 ? '' : rawLogo;
-  const widthMm = Number(company.logoWidthMm);
+function sanitizeCompanyMap(company?: Partial<CompanyProfile> | null): CompanyProfile {
+  const c = company || {};
+  const rawLogo = typeof c.logoDataUrl === 'string' ? c.logoDataUrl : '';
+  // If user uploaded a large base64 image exceeding Firestore rule limit (100KB UTF-8 bytes), omit from cloud snapshot
+  const safeLogo = utf8ByteLength(rawLogo) > 95000 ? '' : rawLogo;
+  const widthMm = Number(c.logoWidthMm);
   return {
-    name: safeStr(company.name, 200),
-    addressLine1: safeStr(company.addressLine1, 250),
-    addressLine2: safeStr(company.addressLine2, 250),
-    phone: safeStr(company.phone, 80),
-    email: safeStr(company.email, 120),
+    name: safeStr(c.name, 200),
+    addressLine1: safeStr(c.addressLine1, 250),
+    addressLine2: safeStr(c.addressLine2, 250),
+    phone: safeStr(c.phone, 80),
+    email: safeStr(c.email, 120),
     logoDataUrl: safeLogo,
     logoWidthMm: Number.isFinite(widthMm) ? Math.min(120, Math.max(10, widthMm)) : 16,
-    showLetterheadInfo: Boolean(company.showLetterheadInfo),
-    showLetterheadDivider: Boolean(company.showLetterheadDivider),
+    showLetterheadInfo: Boolean(c.showLetterheadInfo),
+    showLetterheadDivider: Boolean(c.showLetterheadDivider),
   };
 }
 
-function sanitizeFooterMap(footer: DocumentFooter): DocumentFooter {
+function sanitizeFooterMap(footer?: Partial<DocumentFooter> | null): DocumentFooter {
+  const f = footer || {};
   return {
-    enabled: Boolean(footer.enabled),
-    companyName: safeStr(footer.companyName, 200),
-    address: safeStr(footer.address, 250),
-    phone: safeStr(footer.phone, 80),
-    fax: safeStr(footer.fax, 80),
+    enabled: Boolean(f.enabled),
+    companyName: safeStr(f.companyName, 200),
+    address: safeStr(f.address, 250),
+    phone: safeStr(f.phone, 80),
+    fax: safeStr(f.fax, 80),
   };
 }
 
@@ -114,19 +134,26 @@ function timestampToMs(ts: unknown): number {
   return Date.now();
 }
 
+const ITEMS_PER_BATCH_CHUNK = 8;
+
 export async function createInvoiceLog(
   adminName: string,
   invoice: ProformaInvoiceData,
   company: CompanyProfile,
   footer: DocumentFooter,
   actionType: InvoiceLogAction,
-  initialPaymentStatus: InvoicePaymentStatus = 'pending'
+  initialPaymentStatus: InvoicePaymentStatus = 'pending',
+  initialPaymentMeta?: {
+    paidAtDate?: string;
+    paymentNote?: string;
+  }
 ): Promise<string> {
   const logId = `log_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
   const path = `invoiceLogs/${logId}`;
 
-  const totals = calculateInvoiceTotals(invoice);
-  const itemsToSave = invoice.items.slice(0, 200);
+  const safeItemsSource = Array.isArray(invoice.items) ? invoice.items : [];
+  const totals = calculateInvoiceTotals({ ...invoice, items: safeItemsSource });
+  const itemsToSave = safeItemsSource.slice(0, 200);
   const safeColor = /^#[0-9a-fA-F]{6}$/.test(invoice.tableHeaderColor || '')
     ? (invoice.tableHeaderColor as string)
     : '#1E293B';
@@ -135,6 +162,10 @@ export async function createInvoiceLog(
       ? invoice.ppnMode
       : 'include';
   const safeNumberFormat: 'comma' | 'dot' = invoice.numberFormat === 'dot' ? 'dot' : 'comma';
+  const safeActionType: InvoiceLogAction =
+    actionType === 'pdf_export' || actionType === 'print' || actionType === 'restored'
+      ? actionType
+      : 'manual_save';
   const safePaymentStatus: InvoicePaymentStatus =
     initialPaymentStatus === 'paid' || initialPaymentStatus === 'cancelled'
       ? initialPaymentStatus
@@ -143,11 +174,19 @@ export async function createInvoiceLog(
   const sanitizedCompany = sanitizeCompanyMap(company);
   const sanitizedFooter = sanitizeFooterMap(footer);
   const sanitizedBank = sanitizeBankMap(invoice.bankAccount);
-  const cleanedAdminName = safeStr(adminName.trim() || 'Tim Admin', 120, 'Tim Admin');
+  const cleanedAdminName = safeStr((adminName || '').trim() || 'Tim Admin', 120, 'Tim Admin');
   const cleanedSalesName = safeStr((invoice.salesName || '').trim(), 120, '');
-  const initialPaidAtDate = safePaymentStatus === 'paid' ? toLocalDateIso() : '';
+  const rawInitialPaidDate = (initialPaymentMeta?.paidAtDate || '').trim();
+  const initialPaidAtDate =
+    safePaymentStatus === 'paid'
+      ? isValidIsoDate(rawInitialPaidDate)
+        ? rawInitialPaidDate
+        : toLocalDateIso()
+      : '';
+  const initialPaymentNote = safeStr((initialPaymentMeta?.paymentNote || '').trim(), 300, '');
 
   try {
+    const firstChunk = itemsToSave.slice(0, ITEMS_PER_BATCH_CHUNK);
     const batch = writeBatch(db);
     const logRef = doc(db, 'invoiceLogs', logId);
 
@@ -155,12 +194,12 @@ export async function createInvoiceLog(
       ownerId: SHARED_TEAM_OWNER_ID,
       ownerEmail: '',
       ownerName: cleanedAdminName,
-      actionType,
+      actionType: safeActionType,
       status: 'active',
       salesName: cleanedSalesName,
       paymentStatus: safePaymentStatus,
       paidAtDate: initialPaidAtDate,
-      paymentNote: '',
+      paymentNote: initialPaymentNote,
       title:
         safeStr(invoice.title || 'PROFORMA INVOICE', 100, 'PROFORMA INVOICE') ||
         'PROFORMA INVOICE',
@@ -179,16 +218,16 @@ export async function createInvoiceLog(
       taxLabel: safeStr(invoice.taxLabel, 50),
       qtyUnit: safeStr(invoice.qtyUnit, 30),
       tableHeaderColor: safeColor,
-      shippingCost: totals.shippingCost,
+      shippingCost: safeNonNegNum(totals.shippingCost),
       shippingLabel: safeStr(invoice.shippingLabel ?? 'Biaya Ongkir', 100),
-      depositAmount: totals.depositAmount,
+      depositAmount: safeNonNegNum(totals.depositAmount),
       depositLabel: safeStr(invoice.depositLabel ?? 'Deposit Kelebihan Bayar', 100),
       additionalNote: safeStr(invoice.additionalNote, 1000),
       highlightTransferTotal: Boolean(invoice.highlightTransferTotal),
       showSignature: Boolean(invoice.showSignature),
       signatureName: safeStr(invoice.signatureName, 100),
       signatureTitle: safeStr(invoice.signatureTitle, 120),
-      itemCount: itemsToSave.length,
+      itemCount: Math.max(0, Math.min(200, Math.floor(itemsToSave.length))),
       totalWeightKg: safeNonNegNum(totals.totalWeightKg),
       subtotal: safeNonNegNum(totals.subtotal),
       ppnAmount: safeNonNegNum(totals.ppnAmount),
@@ -202,15 +241,15 @@ export async function createInvoiceLog(
       updatedAt: serverTimestamp(),
     });
 
-    itemsToSave.forEach((item, idx) => {
+    const addItemToBatch = (targetBatch: ReturnType<typeof writeBatch>, item: InvoiceItem, idx: number) => {
       const itemId = `item_${String(idx).padStart(3, '0')}`;
       const itemRef = doc(db, 'invoiceLogs', logId, 'items', itemId);
       const safeOrderUnit = safeStr(item.orderUnit || 'Kg', 30, 'Kg') || 'Kg';
       const safeBasis: PriceBasis = item.priceBasis === 'per_unit' ? 'per_unit' : 'per_kg';
-      batch.set(itemRef, {
+      targetBatch.set(itemRef, {
         ownerId: SHARED_TEAM_OWNER_ID,
         logId,
-        orderIndex: idx,
+        orderIndex: Math.floor(idx),
         namaBarang: safeStr(item.namaBarang, 200),
         orderUnit: safeOrderUnit,
         weightPerUnit: safeNonNegNum(item.weightPerUnit),
@@ -219,9 +258,19 @@ export async function createInvoiceLog(
         qty: safeNonNegNum(item.qty),
         createdAt: serverTimestamp(),
       });
-    });
+    };
 
+    firstChunk.forEach((item, idx) => addItemToBatch(batch, item, idx));
     await batch.commit();
+
+    // Commit remaining items in safe chunks (<= 8 items per batch) to stay under Firestore's 20-lookup rule cap
+    for (let start = ITEMS_PER_BATCH_CHUNK; start < itemsToSave.length; start += ITEMS_PER_BATCH_CHUNK) {
+      const chunkBatch = writeBatch(db);
+      const slice = itemsToSave.slice(start, start + ITEMS_PER_BATCH_CHUNK);
+      slice.forEach((item, offset) => addItemToBatch(chunkBatch, item, start + offset));
+      await chunkBatch.commit();
+    }
+
     return logId;
   } catch (error) {
     handleFirestoreError(error, OperationType.WRITE, path);

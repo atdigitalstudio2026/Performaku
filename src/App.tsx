@@ -14,6 +14,7 @@ import { BankAccountsView } from './components/BankAccountsView';
 import { InvoiceEditor } from './components/InvoiceEditor';
 import { InvoiceLogsView } from './components/InvoiceLogsView';
 import { InvoicePreview } from './components/InvoicePreview';
+import { MasterDatabaseView } from './components/MasterDatabaseView';
 import { PaymentUpdateModal } from './components/PaymentUpdateModal';
 import { SalesPerformanceView } from './components/SalesPerformanceView';
 import { SavedDraftsView } from './components/SavedDraftsView';
@@ -45,13 +46,28 @@ import {
   updateInvoiceSalesName,
 } from './services/invoiceLogService';
 import {
+  deleteCustomerRecord,
+  deleteProductRecord,
+  makeDeterministicMemoryId,
+  normalizeMemoryKey,
+  subscribeCustomers,
+  subscribeProducts,
+  updateCustomerRecordById,
+  updateProductRecordById,
+  upsertCustomerMemory,
+  upsertProductMemory,
+} from './services/masterDataService';
+import {
   BankAccount,
   CompanyProfile,
+  CustomerRecord,
   DocumentFooter,
   InvoiceItem,
   InvoiceLogAction,
   InvoiceLogRecord,
   InvoicePaymentStatus,
+  PriceBasis,
+  ProductRecord,
   ProformaInvoiceData,
   SavedInvoiceDraft,
 } from './types/invoice';
@@ -72,7 +88,7 @@ import {
   WhatsAppTemplateMode,
 } from './utils/whatsappMessage';
 
-type ActiveTab = 'editor' | 'logs' | 'sales' | 'banks' | 'drafts';
+type ActiveTab = 'editor' | 'logs' | 'sales' | 'database' | 'banks' | 'drafts';
 type MobilePane = 'edit' | 'preview';
 
 const STORAGE_KEYS = {
@@ -83,6 +99,8 @@ const STORAGE_KEYS = {
   drafts: 'proformaku_saved_drafts_v1',
   localLogs: 'proformaku_invoice_logs_local_v1',
   adminName: 'proformaku_admin_name_v1',
+  customers: 'proformaku_customers_cache_v1',
+  products: 'proformaku_products_cache_v1',
 };
 
 function loadFromStorage<T>(key: string, fallback: T): T {
@@ -144,8 +162,20 @@ export default function App() {
   const [logsError, setLogsError] = useState('');
   const [cloudBanks, setCloudBanks] = useState<BankAccount[]>([]);
   const [cloudCounters, setCloudCounters] = useState<InvoiceCounterRecord[]>([]);
+  const [cloudCustomers, setCloudCustomers] = useState<CustomerRecord[]>([]);
+  const [cloudProducts, setCloudProducts] = useState<ProductRecord[]>([]);
+  const [localCustomers, setLocalCustomers] = useState<CustomerRecord[]>(() =>
+    loadFromStorage<CustomerRecord[]>(STORAGE_KEYS.customers, [])
+  );
+  const [localProducts, setLocalProducts] = useState<ProductRecord[]>(() =>
+    loadFromStorage<ProductRecord[]>(STORAGE_KEYS.products, [])
+  );
+  const [loadingMaster, setLoadingMaster] = useState(true);
+  const [isSyncingMasterFromLogs, setIsSyncingMasterFromLogs] = useState(false);
   const [isGeneratingNumber, setIsGeneratingNumber] = useState(false);
   const reservedNumbersRef = useRef<Set<string>>(new Set());
+  const rememberedCustomerSigRef = useRef<Map<string, string>>(new Map());
+  const rememberedProductSigRef = useRef<Map<string, string>>(new Map());
 
   const [company, setCompany] = useState<CompanyProfile>(() => {
     const loaded = {
@@ -241,6 +271,22 @@ export default function App() {
     }
   }, [savedDrafts]);
 
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.customers, JSON.stringify(localCustomers));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [localCustomers]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEYS.products, JSON.stringify(localProducts));
+    } catch {
+      // Ignore storage quota errors
+    }
+  }, [localProducts]);
+
   // Direct real-time Firestore subscriptions for unified shared team data
   useEffect(() => {
     setLoadingLogs(true);
@@ -276,10 +322,44 @@ export default function App() {
       }
     );
 
+    let customersReady = false;
+    let productsReady = false;
+    const markMasterReady = () => {
+      if (customersReady && productsReady) {
+        setLoadingMaster(false);
+      }
+    };
+
+    const unsubCustomers = subscribeCustomers(
+      (records) => {
+        setCloudCustomers(records);
+        customersReady = true;
+        markMasterReady();
+      },
+      () => {
+        customersReady = true;
+        markMasterReady();
+      }
+    );
+
+    const unsubProducts = subscribeProducts(
+      (records) => {
+        setCloudProducts(records);
+        productsReady = true;
+        markMasterReady();
+      },
+      () => {
+        productsReady = true;
+        markMasterReady();
+      }
+    );
+
     return () => {
       unsubLogs();
       unsubBanks();
       unsubCounters();
+      unsubCustomers();
+      unsubProducts();
     };
   }, []);
 
@@ -305,7 +385,11 @@ export default function App() {
             log.companySnapshot,
             log.footerSnapshot,
             log.actionType,
-            log.paymentStatus || 'pending'
+            log.paymentStatus || 'pending',
+            {
+              paidAtDate: log.paidAtDate,
+              paymentNote: log.paymentNote,
+            }
           );
           migrated += 1;
         } catch {
@@ -342,6 +426,231 @@ export default function App() {
     () => [...cloudLogs, ...localLogs].sort((a, b) => b.createdAtMs - a.createdAtMs),
     [cloudLogs, localLogs]
   );
+
+  // Unified Customer Memory: Cloud Firestore + Local Cache
+  const savedCustomers: CustomerRecord[] = useMemo(() => {
+    const byKey = new Map<string, CustomerRecord>();
+
+    for (const c of localCustomers) {
+      const norm = c.normalizedName || normalizeMemoryKey(c.name);
+      if (!norm) continue;
+      byKey.set(norm, c);
+    }
+
+    for (const c of cloudCustomers) {
+      const norm = c.normalizedName || normalizeMemoryKey(c.name);
+      if (!norm) continue;
+      byKey.set(norm, c);
+    }
+
+    return Array.from(byKey.values()).sort(
+      (a, b) => b.usageCount - a.usageCount || b.updatedAtMs - a.updatedAtMs
+    );
+  }, [cloudCustomers, localCustomers]);
+
+  // Unified Product Memory: Cloud Firestore + Local Cache
+  const savedProducts: ProductRecord[] = useMemo(() => {
+    const byKey = new Map<string, ProductRecord>();
+
+    for (const p of localProducts) {
+      const norm = p.normalizedName || normalizeMemoryKey(p.name);
+      if (!norm) continue;
+      byKey.set(norm, p);
+    }
+
+    for (const p of cloudProducts) {
+      const norm = p.normalizedName || normalizeMemoryKey(p.name);
+      if (!norm) continue;
+      byKey.set(norm, p);
+    }
+
+    return Array.from(byKey.values()).sort(
+      (a, b) => b.usageCount - a.usageCount || b.updatedAtMs - a.updatedAtMs
+    );
+  }, [cloudProducts, localProducts]);
+
+  const rememberCustomerInMemory = (
+    input: { name: string; address?: string; defaultSalesName?: string },
+    options?: { incrementUsage?: boolean; overwriteEmpty?: boolean; force?: boolean }
+  ) => {
+    const cleanName = input.name.trim();
+    if (cleanName.length < 2) return;
+    const norm = normalizeMemoryKey(cleanName);
+    if (!norm) return;
+
+    const cleanAddress = (input.address || '').trim();
+    const cleanSales = (input.defaultSalesName || '').trim();
+    const sig = `${cleanName}|${cleanAddress}|${cleanSales}`;
+
+    if (
+      !options?.incrementUsage &&
+      !options?.force &&
+      rememberedCustomerSigRef.current.get(norm) === sig
+    ) {
+      return;
+    }
+    rememberedCustomerSigRef.current.set(norm, sig);
+
+    const id = makeDeterministicMemoryId('cust', cleanName);
+    const now = Date.now();
+
+    // Instant local memory update so autocomplete works immediately
+    setLocalCustomers((prev) => {
+      const idx = prev.findIndex((c) => c.id === id || c.normalizedName === norm);
+      if (idx >= 0) {
+        const existing = prev[idx];
+        const updated: CustomerRecord = {
+          ...existing,
+          name: cleanName,
+          normalizedName: norm,
+          address: cleanAddress || options?.overwriteEmpty ? cleanAddress : existing.address,
+          defaultSalesName:
+            cleanSales || options?.overwriteEmpty ? cleanSales : existing.defaultSalesName,
+          usageCount: options?.incrementUsage ? existing.usageCount + 1 : existing.usageCount,
+          updatedAtMs: now,
+        };
+        const copy = [...prev];
+        copy[idx] = updated;
+        return copy;
+      }
+      return [
+        {
+          id,
+          ownerId: 'shared_team',
+          name: cleanName,
+          normalizedName: norm,
+          address: cleanAddress,
+          defaultSalesName: cleanSales,
+          usageCount: 1,
+          createdAtMs: now,
+          updatedAtMs: now,
+        },
+        ...prev,
+      ];
+    });
+
+    // Persist asynchronously to shared Firebase database
+    void upsertCustomerMemory(
+      {
+        name: cleanName,
+        address: cleanAddress,
+        defaultSalesName: cleanSales,
+      },
+      {
+        incrementUsage: options?.incrementUsage,
+        overwriteEmpty: options?.overwriteEmpty,
+      }
+    ).catch(() => {
+      // Non-fatal: already cached locally
+    });
+  };
+
+  const rememberProductInMemory = (
+    item: {
+      namaBarang: string;
+      orderUnit?: string;
+      weightPerUnit?: number;
+      harga?: number;
+      priceBasis?: PriceBasis;
+    },
+    options?: { incrementUsage?: boolean; overwriteZero?: boolean; force?: boolean }
+  ) => {
+    const cleanName = (item.namaBarang || '').trim();
+    if (cleanName.length < 2) return;
+    const norm = normalizeMemoryKey(cleanName);
+    if (!norm) return;
+
+    const unit = (item.orderUnit || 'Sak').trim() || 'Sak';
+    const isKg = unit.toLowerCase() === 'kg';
+    const weight = isKg ? 1 : Math.max(0, Number(item.weightPerUnit) || 0);
+    const harga = Math.max(0, Number(item.harga) || 0);
+    const basis: PriceBasis = isKg ? 'per_kg' : item.priceBasis === 'per_unit' ? 'per_unit' : 'per_kg';
+    const sig = `${cleanName}|${unit}|${weight}|${harga}|${basis}`;
+
+    if (
+      !options?.incrementUsage &&
+      !options?.force &&
+      rememberedProductSigRef.current.get(norm) === sig
+    ) {
+      return;
+    }
+    rememberedProductSigRef.current.set(norm, sig);
+
+    const id = makeDeterministicMemoryId('prod', cleanName);
+    const now = Date.now();
+
+    setLocalProducts((prev) => {
+      const idx = prev.findIndex((p) => p.id === id || p.normalizedName === norm);
+      if (idx >= 0) {
+        const existing = prev[idx];
+        const updated: ProductRecord = {
+          ...existing,
+          name: cleanName,
+          normalizedName: norm,
+          orderUnit: unit,
+          weightPerUnit:
+            isKg ? 1 : weight > 0 || options?.overwriteZero ? weight : existing.weightPerUnit,
+          harga: harga > 0 || options?.overwriteZero ? harga : existing.harga,
+          priceBasis: basis,
+          usageCount: options?.incrementUsage ? existing.usageCount + 1 : existing.usageCount,
+          updatedAtMs: now,
+        };
+        const copy = [...prev];
+        copy[idx] = updated;
+        return copy;
+      }
+      return [
+        {
+          id,
+          ownerId: 'shared_team',
+          name: cleanName,
+          normalizedName: norm,
+          orderUnit: unit,
+          weightPerUnit: isKg ? 1 : weight > 0 ? weight : 10,
+          harga,
+          priceBasis: basis,
+          usageCount: 1,
+          createdAtMs: now,
+          updatedAtMs: now,
+        },
+        ...prev,
+      ];
+    });
+
+    void upsertProductMemory(
+      {
+        name: cleanName,
+        orderUnit: unit,
+        weightPerUnit: weight,
+        harga,
+        priceBasis: basis,
+      },
+      {
+        incrementUsage: options?.incrementUsage,
+        overwriteZero: options?.overwriteZero,
+      }
+    ).catch(() => {
+      // Non-fatal: already cached locally
+    });
+  };
+
+  const captureInvoiceToMasterMemory = (targetInvoice: ProformaInvoiceData) => {
+    if ((targetInvoice.buyerName || '').trim().length >= 2) {
+      rememberCustomerInMemory(
+        {
+          name: targetInvoice.buyerName,
+          address: targetInvoice.buyerAddress,
+          defaultSalesName: targetInvoice.salesName,
+        },
+        { incrementUsage: true }
+      );
+    }
+    for (const item of targetInvoice.items || []) {
+      if ((item.namaBarang || '').trim().length >= 2) {
+        rememberProductInMemory(item, { incrementUsage: true });
+      }
+    }
+  };
 
   const activePeriodKey = getCurrentPeriodKey();
   const activeCompanyCode = useMemo(
@@ -523,6 +832,7 @@ export default function App() {
     actionType: InvoiceLogAction,
     targetInvoice: ProformaInvoiceData
   ): Promise<'firebase' | 'local'> => {
+    captureInvoiceToMasterMemory(targetInvoice);
     try {
       await createInvoiceLog(
         adminName.trim() || 'Tim Admin',
@@ -564,7 +874,11 @@ export default function App() {
           log.companySnapshot,
           log.footerSnapshot,
           log.actionType,
-          log.paymentStatus || 'pending'
+          log.paymentStatus || 'pending',
+          {
+            paidAtDate: log.paidAtDate,
+            paymentNote: log.paymentNote,
+          }
         );
         syncedCount += 1;
       } catch {
@@ -728,6 +1042,7 @@ export default function App() {
   };
 
   const handleSaveDraft = () => {
+    captureInvoiceToMasterMemory(invoice);
     const draft: SavedInvoiceDraft = {
       id: `draft-${Date.now()}`,
       savedAt: new Date().toISOString(),
@@ -799,6 +1114,208 @@ export default function App() {
       return log.localItems || [];
     }
     return fetchInvoiceLogItems(log.id);
+  };
+
+  const handleSyncMasterFromLogs = async () => {
+    if (isSyncingMasterFromLogs || combinedLogs.length === 0) return;
+    setIsSyncingMasterFromLogs(true);
+    try {
+      const customerMap = new Map<
+        string,
+        { name: string; address: string; defaultSalesName: string }
+      >();
+      const productMap = new Map<string, InvoiceItem>();
+
+      for (const log of combinedLogs) {
+        const bName = (log.invoiceSnapshot?.buyerName || '').trim();
+        if (bName.length >= 2) {
+          const norm = normalizeMemoryKey(bName);
+          if (norm && !customerMap.has(norm)) {
+            customerMap.set(norm, {
+              name: bName,
+              address: (log.invoiceSnapshot?.buyerAddress || '').trim(),
+              defaultSalesName: (log.salesName || '').trim(),
+            });
+          }
+        }
+        try {
+          const items = await handleFetchLogItems(log);
+          for (const item of items) {
+            const pName = (item.namaBarang || '').trim();
+            if (pName.length >= 2) {
+              const norm = normalizeMemoryKey(pName);
+              if (norm && !productMap.has(norm)) {
+                productMap.set(norm, item);
+              }
+            }
+          }
+        } catch {
+          // Skip unreadable log items
+        }
+      }
+
+      let custCount = 0;
+      for (const cust of customerMap.values()) {
+        try {
+          await upsertCustomerMemory(cust);
+          custCount += 1;
+        } catch {
+          // Continue
+        }
+      }
+
+      let prodCount = 0;
+      for (const prod of productMap.values()) {
+        try {
+          await upsertProductMemory({
+            name: prod.namaBarang,
+            orderUnit: prod.orderUnit,
+            weightPerUnit: prod.weightPerUnit,
+            harga: prod.harga,
+            priceBasis: prod.priceBasis,
+          });
+          prodCount += 1;
+        } catch {
+          // Continue
+        }
+      }
+
+      showNotice(
+        `Impor selesai: ${custCount} customer & ${prodCount} barang masuk ke database bersama.`
+      );
+    } finally {
+      setIsSyncingMasterFromLogs(false);
+    }
+  };
+
+  const handleSaveMasterCustomer = async (
+    input: { name: string; address: string; defaultSalesName: string },
+    editingId?: string | null
+  ) => {
+    if (editingId && cloudCustomers.some((c) => c.id === editingId)) {
+      await updateCustomerRecordById(editingId, input);
+      setLocalCustomers((prev) =>
+        prev.map((c) =>
+          c.id === editingId
+            ? {
+                ...c,
+                name: input.name,
+                normalizedName: normalizeMemoryKey(input.name),
+                address: input.address,
+                defaultSalesName: input.defaultSalesName,
+                updatedAtMs: Date.now(),
+              }
+            : c
+        )
+      );
+      showNotice(`Data customer "${input.name}" diperbarui.`);
+      return;
+    }
+
+    rememberCustomerInMemory(input, { overwriteEmpty: true, force: true });
+    showNotice(`Customer "${input.name}" disimpan ke database bersama.`);
+  };
+
+  const handleDeleteMasterCustomer = async (customer: CustomerRecord) => {
+    setLocalCustomers((prev) =>
+      prev.filter((c) => c.id !== customer.id && c.normalizedName !== customer.normalizedName)
+    );
+    if (cloudCustomers.some((c) => c.id === customer.id)) {
+      await deleteCustomerRecord(customer.id);
+    }
+    showNotice(`Customer "${customer.name}" dihapus dari database.`);
+  };
+
+  const handleUseMasterCustomer = (customer: CustomerRecord) => {
+    setInvoice((prev) => ({
+      ...prev,
+      buyerName: customer.name,
+      buyerAddress: customer.address || prev.buyerAddress,
+      salesName:
+        !prev.salesName && customer.defaultSalesName
+          ? customer.defaultSalesName
+          : prev.salesName,
+    }));
+    setActiveTab('editor');
+    showNotice(`Customer "${customer.name}" diterapkan ke invoice aktif.`);
+  };
+
+  const handleSaveMasterProduct = async (
+    input: {
+      name: string;
+      orderUnit: string;
+      weightPerUnit: number;
+      harga: number;
+      priceBasis: PriceBasis;
+    },
+    editingId?: string | null
+  ) => {
+    if (editingId && cloudProducts.some((p) => p.id === editingId)) {
+      await updateProductRecordById(editingId, input);
+      setLocalProducts((prev) =>
+        prev.map((p) =>
+          p.id === editingId
+            ? {
+                ...p,
+                name: input.name,
+                normalizedName: normalizeMemoryKey(input.name),
+                orderUnit: input.orderUnit,
+                weightPerUnit: input.weightPerUnit,
+                harga: input.harga,
+                priceBasis: input.priceBasis,
+                updatedAtMs: Date.now(),
+              }
+            : p
+        )
+      );
+      showNotice(`Data barang "${input.name}" diperbarui.`);
+      return;
+    }
+
+    rememberProductInMemory(
+      {
+        namaBarang: input.name,
+        orderUnit: input.orderUnit,
+        weightPerUnit: input.weightPerUnit,
+        harga: input.harga,
+        priceBasis: input.priceBasis,
+      },
+      { overwriteZero: true, force: true }
+    );
+    showNotice(`Barang "${input.name}" disimpan ke database bersama.`);
+  };
+
+  const handleDeleteMasterProduct = async (product: ProductRecord) => {
+    setLocalProducts((prev) =>
+      prev.filter((p) => p.id !== product.id && p.normalizedName !== product.normalizedName)
+    );
+    if (cloudProducts.some((p) => p.id === product.id)) {
+      await deleteProductRecord(product.id);
+    }
+    showNotice(`Barang "${product.name}" dihapus dari database.`);
+  };
+
+  const handleAddMasterProductToInvoice = (product: ProductRecord) => {
+    const isKg = product.orderUnit.toLowerCase() === 'kg';
+    setInvoice((prev) => {
+      const hasSingleBlank =
+        prev.items.length === 1 && !prev.items[0].namaBarang.trim();
+      const newItem: InvoiceItem = {
+        id: `item-${Date.now()}`,
+        namaBarang: product.name,
+        orderUnit: product.orderUnit,
+        weightPerUnit: isKg ? 1 : product.weightPerUnit,
+        harga: product.harga,
+        priceBasis: isKg ? 'per_kg' : product.priceBasis,
+        qty: 1,
+      };
+      return {
+        ...prev,
+        items: hasSingleBlank ? [newItem] : [...prev.items, newItem],
+      };
+    });
+    setActiveTab('editor');
+    showNotice(`"${product.name}" dimasukkan ke daftar barang invoice.`);
   };
 
   const handleLoadLogToEditor = (
@@ -926,6 +1443,17 @@ export default function App() {
           </button>
           <button
             type="button"
+            onClick={() => setActiveTab('database')}
+            className={`py-1 border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
+              activeTab === 'database'
+                ? 'border-[#1D4ED8] text-slate-900'
+                : 'border-transparent text-slate-600 hover:text-slate-900'
+            }`}
+          >
+            Database ({savedCustomers.length + savedProducts.length})
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab('banks')}
             className={`py-1 border-b-2 transition-colors whitespace-nowrap shrink-0 cursor-pointer ${
               activeTab === 'banks'
@@ -1013,6 +1541,8 @@ export default function App() {
               company={company}
               footer={footer}
               savedBanks={savedBanks}
+              savedCustomers={savedCustomers}
+              savedProducts={savedProducts}
               activeCompanyCode={activeCompanyCode}
               nextInvoiceNumberPreview={activeNumberInfo.nextNumber}
               isDuplicateNumber={isDuplicateCurrentNumber}
@@ -1024,6 +1554,8 @@ export default function App() {
               onSaveBankPreset={handleAddBankPreset}
               onSelectCompanyPreset={handleSelectCompanyPreset}
               onGenerateNextNumber={handleGenerateNextNumber}
+              onRememberCustomer={(cust) => rememberCustomerInMemory(cust)}
+              onRememberProduct={(item) => rememberProductInMemory(item)}
             />
           </aside>
 
@@ -1176,6 +1708,26 @@ export default function App() {
             onLoadLogToEditor={handleLoadLogToEditor}
             onDownloadLogPdf={handleDownloadLogPdf}
             onOpenWhatsApp={handleOpenWhatsAppForLog}
+            onNotify={showNotice}
+          />
+        </main>
+      )}
+
+      {activeTab === 'database' && (
+        <main className="flex-1">
+          <MasterDatabaseView
+            customers={savedCustomers}
+            products={savedProducts}
+            loadingMaster={loadingMaster}
+            totalLogsAvailable={combinedLogs.length}
+            isSyncingFromLogs={isSyncingMasterFromLogs}
+            onSyncFromLogs={handleSyncMasterFromLogs}
+            onSaveCustomer={handleSaveMasterCustomer}
+            onDeleteCustomer={handleDeleteMasterCustomer}
+            onUseCustomer={handleUseMasterCustomer}
+            onSaveProduct={handleSaveMasterProduct}
+            onDeleteProduct={handleDeleteMasterProduct}
+            onAddProductToInvoice={handleAddMasterProductToInvoice}
             onNotify={showNotice}
           />
         </main>

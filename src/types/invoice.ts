@@ -110,3 +110,29 @@ export interface InvoiceLogRecord {
   storageSource?: 'firebase' | 'local';
   localItems?: InvoiceItem[];
 }
+
+export interface CustomerRecord {
+  id: string;
+  ownerId: string;
+  name: string;
+  normalizedName: string;
+  address: string;
+  defaultSalesName: string;
+  usageCount: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+}
+
+export interface ProductRecord {
+  id: string;
+  ownerId: string;
+  name: string;
+  normalizedName: string;
+  orderUnit: string;
+  weightPerUnit: number;
+  harga: number;
+  priceBasis: PriceBasis;
+  usageCount: number;
+  createdAtMs: number;
+  updatedAtMs: number;
+}

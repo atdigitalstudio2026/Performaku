@@ -45,7 +45,7 @@
         "paidAtDate": {
           "type": "string",
           "maxLength": 10,
-          "pattern": "^(|\\d{4}-\\d{2}-\\d{2})$",
+          "pattern": "^(|[0-9]{4}-[0-9]{2}-[0-9]{2})$",
           "description": "Tanggal pelunasan format YYYY-MM-DD (kosong jika belum lunas)."
         },
         "paymentNote": {
@@ -402,6 +402,131 @@
         "createdAt",
         "updatedAt"
       ]
+    },
+    "CustomerRecord": {
+      "title": "CustomerRecord",
+      "description": "Database memori customer (pembeli) bersama yang terbentuk otomatis dari input Proforma Invoice.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "enum": ["shared_team"],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Nama pembeli / perusahaan customer."
+        },
+        "normalizedName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Kunci pencarian nama customer (huruf kecil, ter-trim)."
+        },
+        "address": {
+          "type": "string",
+          "maxLength": 500,
+          "description": "Alamat atau keterangan terakhir customer."
+        },
+        "defaultSalesName": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Nama sales terakhir yang menangani customer."
+        },
+        "usageCount": {
+          "type": "integer",
+          "description": "Jumlah pemakaian customer untuk urutan prioritas saran autocomplete."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "name",
+        "normalizedName",
+        "address",
+        "defaultSalesName",
+        "usageCount",
+        "createdAt",
+        "updatedAt"
+      ]
+    },
+    "ProductRecord": {
+      "title": "ProductRecord",
+      "description": "Database memori barang/produk bersama yang terbentuk otomatis dari input item Proforma Invoice.",
+      "type": "object",
+      "properties": {
+        "ownerId": {
+          "type": "string",
+          "enum": ["shared_team"],
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Nama barang / produk."
+        },
+        "normalizedName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Kunci pencarian nama barang (huruf kecil, ter-trim)."
+        },
+        "orderUnit": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 30,
+          "description": "Satuan order terakhir (Sak, Dus, Kg, Bal, Karton, Pail, Pcs, dll)."
+        },
+        "weightPerUnit": {
+          "type": "number",
+          "description": "Berat per satuan dalam Kg."
+        },
+        "harga": {
+          "type": "number",
+          "description": "Harga satuan terakhir."
+        },
+        "priceBasis": {
+          "type": "string",
+          "enum": ["per_kg", "per_unit"],
+          "description": "Basis harga terakhir (per Kg atau per Satuan)."
+        },
+        "usageCount": {
+          "type": "integer",
+          "description": "Jumlah pemakaian barang untuk urutan prioritas saran autocomplete."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "ownerId",
+        "name",
+        "normalizedName",
+        "orderUnit",
+        "weightPerUnit",
+        "harga",
+        "priceBasis",
+        "usageCount",
+        "createdAt",
+        "updatedAt"
+      ]
     }
   },
   "firestore": {
@@ -428,6 +553,18 @@
         "$ref": "#/entities/InvoiceCounter"
       },
       "description": "Menyimpan nomor urut otomatis Proforma Invoice per PT per bulan secara atomik."
+    },
+    "/customers/{customerId}": {
+      "schema": {
+        "$ref": "#/entities/CustomerRecord"
+      },
+      "description": "Database memori customer (pembeli) bersama untuk autocomplete dan pengisian alamat otomatis."
+    },
+    "/products/{productId}": {
+      "schema": {
+        "$ref": "#/entities/ProductRecord"
+      },
+      "description": "Database memori barang bersama untuk autocomplete nama, satuan, berat, dan harga otomatis."
     }
   }
 }
