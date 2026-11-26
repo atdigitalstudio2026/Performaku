@@ -271,7 +271,12 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                         {idx + 1}
                       </td>
                       <td className="border-r border-slate-200 px-2.5 py-2.5 text-left align-top font-medium text-slate-900 break-words">
-                        {item.namaBarang || '-'}
+                        <div>{item.namaBarang || '-'}</div>
+                        {item.itemNote?.trim() && (
+                          <div className="mt-0.5 text-[10px] font-normal italic text-slate-500 leading-snug break-words whitespace-pre-line">
+                            Catatan: {item.itemNote.trim()}
+                          </div>
+                        )}
                       </td>
                       <td className="border-r border-slate-200 px-2 py-2.5 text-center align-top text-slate-800 whitespace-nowrap">
                         <span className="font-semibold">{formatWeight(Number(item.qty) || 0, invoice.numberFormat)}</span>{' '}

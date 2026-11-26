@@ -134,15 +134,20 @@ service cloud.firestore {
     }
 
     function isValidInvoiceLogItem(data, logId) {
-      return data.size() == 10
-        && data.keys().hasOnly([
+      return data.size() >= 10 && data.size() <= 11
+        && data.keys().hasAll([
           'ownerId', 'logId', 'orderIndex', 'namaBarang',
+          'orderUnit', 'weightPerUnit', 'harga', 'priceBasis', 'qty', 'createdAt'
+        ])
+        && data.keys().hasOnly([
+          'ownerId', 'logId', 'orderIndex', 'namaBarang', 'itemNote',
           'orderUnit', 'weightPerUnit', 'harga', 'priceBasis', 'qty', 'createdAt'
         ])
         && data.ownerId == 'shared_team'
         && data.logId == logId
         && data.orderIndex is int && data.orderIndex >= 0 && data.orderIndex <= 500
         && data.namaBarang is string && data.namaBarang.size() <= 200
+        && (!('itemNote' in data) || (data.itemNote is string && data.itemNote.size() <= 250))
         && data.orderUnit is string && data.orderUnit.size() >= 1 && data.orderUnit.size() <= 30
         && data.weightPerUnit >= 0
         && data.harga >= 0

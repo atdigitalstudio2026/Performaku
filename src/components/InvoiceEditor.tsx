@@ -164,6 +164,7 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
     const newItem: InvoiceItem = {
       id: `item-${Date.now()}`,
       namaBarang: '',
+      itemNote: '',
       orderUnit: 'Sak',
       weightPerUnit: 10,
       harga: 0,
@@ -1101,6 +1102,32 @@ export const InvoiceEditor: React.FC<InvoiceEditorProps> = ({
                       <option value="per_kg">Per Kg</option>
                       {!isKgOrder && <option value="per_unit">Per {m.orderUnit}</option>}
                     </select>
+                  </div>
+
+                  <div className="col-span-12">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="block text-[11px] font-medium text-slate-600">
+                        Catatan Tambahan Barang{' '}
+                        <span className="font-normal text-slate-400">(Opsional — tidak mengubah nama barang)</span>
+                      </label>
+                      {(item.itemNote || '').length > 0 && (
+                        <button
+                          type="button"
+                          onClick={() => updateItem(item.id, { itemNote: '' })}
+                          className="text-[10px] font-medium text-slate-400 hover:text-red-600 transition-colors cursor-pointer"
+                        >
+                          Hapus catatan
+                        </button>
+                      )}
+                    </div>
+                    <input
+                      type="text"
+                      maxLength={250}
+                      value={item.itemNote || ''}
+                      onChange={(e) => updateItem(item.id, { itemNote: e.target.value })}
+                      placeholder="Contoh: Packing ulang per 5kg / Grade A / Kirim terpisah / Exp min 2027"
+                      className="w-full px-2.5 py-1.5 text-xs rounded border border-slate-200 bg-white text-slate-700 placeholder:text-slate-400 focus:outline-none focus:ring-2 focus:ring-[#1D4ED8]/20 focus:border-[#1D4ED8]"
+                    />
                   </div>
                 </div>
               </div>

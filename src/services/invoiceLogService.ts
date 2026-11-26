@@ -251,6 +251,7 @@ export async function createInvoiceLog(
         logId,
         orderIndex: Math.floor(idx),
         namaBarang: safeStr(item.namaBarang, 200),
+        itemNote: safeStr(item.itemNote || '', 250),
         orderUnit: safeOrderUnit,
         weightPerUnit: safeNonNegNum(item.weightPerUnit),
         harga: safeNonNegNum(item.harga),
@@ -411,6 +412,7 @@ export async function fetchInvoiceLogItems(logId: string): Promise<InvoiceItem[]
           item: {
             id: docSnap.id,
             namaBarang: String(d.namaBarang || ''),
+            itemNote: String(d.itemNote || ''),
             orderUnit: String(d.orderUnit || 'Kg'),
             weightPerUnit: Number(d.weightPerUnit) || 0,
             harga: Number(d.harga) || 0,

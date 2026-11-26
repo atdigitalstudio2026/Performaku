@@ -88,6 +88,10 @@ export function generateWhatsAppMessage(
       lines.push(
         `${idx + 1}. ${name} — ${qtyText} = ${curr} ${formatAmount(m.lineTotal, fmt)}`
       );
+      const itemNote = (item.itemNote || '').trim();
+      if (itemNote) {
+        lines.push(`   _Catatan: ${itemNote}_`);
+      }
     });
   }
 

@@ -304,8 +304,34 @@ export async function buildProformaInvoicePdf(
   // Table rows with subtle zebra fill and clean hairlines
   const items = invoice.items.length > 0 ? invoice.items : [];
   const itemNameFontSize = 8.5;
+  const itemNoteFontSize = 7.4;
   const itemNameMaxWidth = colW.nama - 5; // 2.5mm left + 2.5mm right padding
   const itemLineStepMm = 4.0;
+  const itemNoteGapMm = 3.8;
+  const itemNoteLineStepMm = 3.4;
+
+  const wrapPdfLines = (text: string, maxWidth: number): string[] => {
+    const rawLines = doc.splitTextToSize(text, maxWidth) as string[];
+    const wrapped: string[] = [];
+    for (const line of rawLines) {
+      if (doc.getTextWidth(line) <= maxWidth) {
+        wrapped.push(line);
+      } else {
+        // Hard-break unusually long unbroken strings (e.g. long SKU codes without spaces)
+        let buf = '';
+        for (const ch of line) {
+          if (buf && doc.getTextWidth(buf + ch) > maxWidth) {
+            wrapped.push(buf);
+            buf = ch;
+          } else {
+            buf += ch;
+          }
+        }
+        if (buf) wrapped.push(buf);
+      }
+    }
+    return wrapped;
+  };
 
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
@@ -315,27 +341,20 @@ export async function buildProformaInvoicePdf(
     // CRITICAL: Set exact target font & size BEFORE measuring with splitTextToSize
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(itemNameFontSize);
-    const rawNameLines = doc.splitTextToSize(item.namaBarang || '-', itemNameMaxWidth) as string[];
-    const nameLines: string[] = [];
-    for (const line of rawNameLines) {
-      if (doc.getTextWidth(line) <= itemNameMaxWidth) {
-        nameLines.push(line);
-      } else {
-        // Hard-break unusually long unbroken strings (e.g. long SKU codes without spaces)
-        let buf = '';
-        for (const ch of line) {
-          if (buf && doc.getTextWidth(buf + ch) > itemNameMaxWidth) {
-            nameLines.push(buf);
-            buf = ch;
-          } else {
-            buf += ch;
-          }
-        }
-        if (buf) nameLines.push(buf);
-      }
+    const nameLines = wrapPdfLines(item.namaBarang || '-', itemNameMaxWidth);
+
+    const trimmedNote = (item.itemNote || '').trim();
+    let noteLines: string[] = [];
+    if (trimmedNote) {
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(itemNoteFontSize);
+      noteLines = wrapPdfLines(`Catatan: ${trimmedNote}`, itemNameMaxWidth);
     }
 
-    const rowH = Math.max(8.5, 5.2 + (nameLines.length - 1) * itemLineStepMm + 3.4);
+    const nameExtraH = (nameLines.length - 1) * itemLineStepMm;
+    const noteExtraH =
+      noteLines.length > 0 ? itemNoteGapMm + (noteLines.length - 1) * itemNoteLineStepMm : 0;
+    const rowH = Math.max(8.5, 5.2 + nameExtraH + noteExtraH + 3.4);
 
     if (cursorY + rowH > pageHeight - 55) {
       doc.addPage();
@@ -375,6 +394,17 @@ export async function buildProformaInvoicePdf(
     doc.setTextColor(15, 23, 42);
     for (let li = 0; li < nameLines.length; li++) {
       doc.text(nameLines[li], colX.nama + 2.5, singleTextY + li * itemLineStepMm);
+    }
+
+    // Render optional Catatan Tambahan Barang directly below Nama Barang
+    if (noteLines.length > 0) {
+      const noteStartY = singleTextY + nameExtraH + itemNoteGapMm;
+      doc.setFont('helvetica', 'italic');
+      doc.setFontSize(itemNoteFontSize);
+      doc.setTextColor(100, 116, 139);
+      for (let ni = 0; ni < noteLines.length; ni++) {
+        doc.text(noteLines[ni], colX.nama + 2.5, noteStartY + ni * itemNoteLineStepMm);
+      }
     }
 
     // Qty Order + Satuan
