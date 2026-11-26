@@ -166,7 +166,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
 
         {/* Tabel Item Fleksibel (Dus/Kg/Bal/Sak + Berat Otomatis) */}
         <div className="mb-7 overflow-hidden rounded-md border border-slate-300">
-          <table className="w-full border-collapse text-[11.5px] tabular-nums">
+          <table className="w-full table-fixed border-collapse text-[11.5px] tabular-nums">
             <thead>
               <tr
                 className="font-semibold"
@@ -177,28 +177,28 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
               >
                 <th
                   rowSpan={2}
-                  className="px-2 py-2 text-center w-[9mm] text-[11px]"
+                  className="px-1.5 py-2 text-center w-[8mm] text-[11px]"
                   style={{ borderRight: `1px solid ${headerPalette.borderHex}` }}
                 >
                   No
                 </th>
                 <th
                   rowSpan={2}
-                  className="px-2.5 py-2 text-left w-[51mm] text-[11px]"
+                  className="px-2.5 py-2 text-left w-[54mm] text-[11px]"
                   style={{ borderRight: `1px solid ${headerPalette.borderHex}` }}
                 >
                   Nama Barang
                 </th>
                 <th
                   rowSpan={2}
-                  className="px-2 py-2 text-center w-[21mm] text-[11px]"
+                  className="px-1.5 py-2 text-center w-[19mm] text-[11px]"
                   style={{ borderRight: `1px solid ${headerPalette.borderHex}` }}
                 >
                   {invoice.qtyHeader || 'Qty Order'}
                 </th>
                 <th
                   colSpan={2}
-                  className="px-2 py-1.5 text-center w-[33mm] text-[11px]"
+                  className="px-2 py-1.5 text-center w-[32mm] text-[11px]"
                   style={{
                     borderRight: `1px solid ${headerPalette.borderHex}`,
                     borderBottom: `1px solid ${headerPalette.borderHex}`,
@@ -207,7 +207,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                   Berat (Kg)
                 </th>
                 <th
-                  className="px-2.5 py-1.5 text-right w-[26mm] text-[11px]"
+                  className="px-2 py-1.5 text-right w-[27mm] text-[11px]"
                   style={{
                     borderRight: `1px solid ${headerPalette.borderHex}`,
                     borderBottom: `1px solid ${headerPalette.borderHex}`,
@@ -230,7 +230,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                 }}
               >
                 <th
-                  className="px-1.5 py-1 text-center w-[16mm]"
+                  className="px-1 py-1 text-center w-[15mm]"
                   style={{ borderRight: `1px solid ${headerPalette.borderHex}` }}
                 >
                   Isi / Unit
@@ -242,7 +242,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                   Total
                 </th>
                 <th
-                  className="px-2.5 py-1 text-right"
+                  className="px-2 py-1 text-right"
                   style={{ borderRight: `1px solid ${headerPalette.borderHex}` }}
                 >
                   {invoice.taxLabel || 'Inc PPN'}
@@ -270,7 +270,7 @@ export const InvoicePreview: React.FC<InvoicePreviewProps> = ({
                       <td className="border-r border-slate-200 px-2 py-2.5 text-center align-top text-slate-600">
                         {idx + 1}
                       </td>
-                      <td className="border-r border-slate-200 px-2.5 py-2.5 text-left align-top font-medium text-slate-900">
+                      <td className="border-r border-slate-200 px-2.5 py-2.5 text-left align-top font-medium text-slate-900 break-words">
                         {item.namaBarang || '-'}
                       </td>
                       <td className="border-r border-slate-200 px-2 py-2.5 text-center align-top text-slate-800 whitespace-nowrap">

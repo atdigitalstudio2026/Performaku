@@ -17,6 +17,22 @@ export interface GeneratedPdfAsset {
   file: File;
 }
 
+function setFittedFontSize(
+  doc: jsPDF,
+  text: string,
+  maxWidthMm: number,
+  baseSizePt: number,
+  minSizePt = 6.2
+): number {
+  let size = baseSizePt;
+  doc.setFontSize(size);
+  while (size > minSizePt && doc.getTextWidth(text) > maxWidthMm) {
+    size = Math.max(minSizePt, Number((size - 0.3).toFixed(2)));
+    doc.setFontSize(size);
+  }
+  return size;
+}
+
 export async function buildProformaInvoicePdf(
   invoice: ProformaInvoiceData,
   company: CompanyProfile,
@@ -185,12 +201,12 @@ export async function buildProformaInvoicePdf(
 
   // 4. PROFESSIONAL FLEXIBLE TABLE GEOMETRY (174mm total width)
   const colW = {
-    no: 9,
-    nama: 51,
-    qty: 21,
-    isi: 16,
+    no: 8,
+    nama: 54,
+    qty: 19,
+    isi: 15,
     totalBerat: 17,
-    harga: 26,
+    harga: 27,
     jumlah: 34,
   };
 
@@ -243,28 +259,40 @@ export async function buildProformaInvoicePdf(
 
     doc.text('No', colX.no + colW.no / 2, startY + totalH / 2 + 1, { align: 'center' });
     doc.text('Nama Barang', colX.nama + 2.5, startY + totalH / 2 + 1);
-    doc.text(invoice.qtyHeader || 'Qty Order', colX.qty + colW.qty / 2, startY + totalH / 2 + 1, {
+
+    const qtyHeaderLabel = invoice.qtyHeader || 'Qty Order';
+    setFittedFontSize(doc, qtyHeaderLabel, colW.qty - 2.5, 8.2, 6.5);
+    doc.text(qtyHeaderLabel, colX.qty + colW.qty / 2, startY + totalH / 2 + 1, {
       align: 'center',
     });
 
+    doc.setFontSize(8.2);
     doc.text('Berat (Kg)', colX.isi + (colW.isi + colW.totalBerat) / 2, startY + 4.4, {
       align: 'center',
     });
-    doc.text(invoice.priceHeader || 'Harga Satuan', colX.harga + colW.harga - 2, startY + 4.4, {
+
+    const priceHeaderLabel = invoice.priceHeader || 'Harga Satuan';
+    setFittedFontSize(doc, priceHeaderLabel, colW.harga - 3.5, 8.2, 6.5);
+    doc.text(priceHeaderLabel, colX.harga + colW.harga - 2, startY + 4.4, {
       align: 'right',
     });
+
+    doc.setFontSize(8.2);
     doc.text('Jumlah', colX.jumlah + colW.jumlah - 2.5, startY + totalH / 2 + 1, {
       align: 'right',
     });
 
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
+    doc.setFontSize(7.4);
     doc.setTextColor(str, stg, stb);
     doc.text('Isi / Unit', colX.isi + colW.isi / 2, startY + hTop + 3.6, { align: 'center' });
     doc.text('Total', colX.totalBerat + colW.totalBerat - 2, startY + hTop + 3.6, {
       align: 'right',
     });
-    doc.text(invoice.taxLabel || 'Inc PPN', colX.harga + colW.harga - 2, startY + hTop + 3.6, {
+
+    const taxHeaderLabel = invoice.taxLabel || 'Inc PPN';
+    setFittedFontSize(doc, taxHeaderLabel, colW.harga - 3.5, 7.4, 6.2);
+    doc.text(taxHeaderLabel, colX.harga + colW.harga - 2, startY + hTop + 3.6, {
       align: 'right',
     });
 
@@ -275,13 +303,39 @@ export async function buildProformaInvoicePdf(
 
   // Table rows with subtle zebra fill and clean hairlines
   const items = invoice.items.length > 0 ? invoice.items : [];
+  const itemNameFontSize = 8.5;
+  const itemNameMaxWidth = colW.nama - 5; // 2.5mm left + 2.5mm right padding
+  const itemLineStepMm = 4.0;
+
   for (let i = 0; i < items.length; i++) {
     const item = items[i];
     const m = calculateItemMetrics(item);
     const isKgOrder = m.orderUnit.toLowerCase() === 'kg';
 
-    const nameLines = doc.splitTextToSize(item.namaBarang || '-', colW.nama - 5);
-    const rowH = Math.max(8.5, nameLines.length * 4.5 + 4);
+    // CRITICAL: Set exact target font & size BEFORE measuring with splitTextToSize
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(itemNameFontSize);
+    const rawNameLines = doc.splitTextToSize(item.namaBarang || '-', itemNameMaxWidth) as string[];
+    const nameLines: string[] = [];
+    for (const line of rawNameLines) {
+      if (doc.getTextWidth(line) <= itemNameMaxWidth) {
+        nameLines.push(line);
+      } else {
+        // Hard-break unusually long unbroken strings (e.g. long SKU codes without spaces)
+        let buf = '';
+        for (const ch of line) {
+          if (buf && doc.getTextWidth(buf + ch) > itemNameMaxWidth) {
+            nameLines.push(buf);
+            buf = ch;
+          } else {
+            buf += ch;
+          }
+        }
+        if (buf) nameLines.push(buf);
+      }
+    }
+
+    const rowH = Math.max(8.5, 5.2 + (nameLines.length - 1) * itemLineStepMm + 3.4);
 
     if (cursorY + rowH > pageHeight - 55) {
       doc.addPage();
@@ -309,47 +363,60 @@ export async function buildProformaInvoicePdf(
     doc.line(colX.jumlah, cursorY, colX.jumlah, cursorY + rowH);
     doc.line(marginX, cursorY + rowH, pageWidth - marginX, cursorY + rowH);
 
-    const singleTextY = cursorY + 5.5;
+    const singleTextY = cursorY + 5.2;
     doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8.8);
+    doc.setFontSize(8.5);
     doc.setTextColor(71, 85, 105);
     doc.text(String(i + 1), colX.no + colW.no / 2, singleTextY, { align: 'center' });
 
+    // Render Nama Barang line-by-line with exact measured font & spacing
     doc.setFont('helvetica', 'bold');
+    doc.setFontSize(itemNameFontSize);
     doc.setTextColor(15, 23, 42);
-    doc.text(nameLines, colX.nama + 2.5, singleTextY);
+    for (let li = 0; li < nameLines.length; li++) {
+      doc.text(nameLines[li], colX.nama + 2.5, singleTextY + li * itemLineStepMm);
+    }
 
     // Qty Order + Satuan
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(30, 41, 59);
     const qtyLabel = `${formatWeight(Number(item.qty) || 0, invoice.numberFormat)} ${m.orderUnit}`;
+    setFittedFontSize(doc, qtyLabel, colW.qty - 2.4, 8.5, 6.5);
     doc.text(qtyLabel, colX.qty + colW.qty / 2, singleTextY, { align: 'center' });
 
     // Isi / Unit
     doc.setFont('helvetica', 'normal');
     doc.setTextColor(71, 85, 105);
     const isiLabel = isKgOrder ? '-' : `${formatWeight(m.weightPerUnit, invoice.numberFormat)} kg`;
+    setFittedFontSize(doc, isiLabel, colW.isi - 2.2, 8.4, 6.5);
     doc.text(isiLabel, colX.isi + colW.isi / 2, singleTextY, { align: 'center' });
 
     // Total Berat (Kg)
     doc.setTextColor(30, 41, 59);
-    doc.text(
-      `${formatWeight(m.totalWeightKg, invoice.numberFormat)} kg`,
-      colX.totalBerat + colW.totalBerat - 2,
-      singleTextY,
-      { align: 'right' }
-    );
+    const totalBeratLabel = `${formatWeight(m.totalWeightKg, invoice.numberFormat)} kg`;
+    setFittedFontSize(doc, totalBeratLabel, colW.totalBerat - 3, 8.4, 6.5);
+    doc.text(totalBeratLabel, colX.totalBerat + colW.totalBerat - 1.8, singleTextY, {
+      align: 'right',
+    });
 
     // Harga Satuan + /basis
     const priceText = `${formatAmount(item.harga, invoice.numberFormat)} /${m.priceUnitSuffix}`;
-    doc.text(priceText, colX.harga + colW.harga - 2, singleTextY, { align: 'right' });
+    setFittedFontSize(doc, priceText, colW.harga - 3.4, 8.4, 6.3);
+    doc.text(priceText, colX.harga + colW.harga - 1.8, singleTextY, { align: 'right' });
 
     // Jumlah column
+    const currencyText = invoice.currency || 'Rp';
+    const lineTotalText = formatAmount(m.lineTotal, invoice.numberFormat);
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(8.4);
     doc.setTextColor(100, 116, 139);
-    doc.text(invoice.currency || 'Rp', colX.jumlah + 2.5, singleTextY);
+    doc.text(currencyText, colX.jumlah + 2.2, singleTextY);
+    const currencyW = doc.getTextWidth(currencyText);
+
     doc.setFont('helvetica', 'bold');
     doc.setTextColor(15, 23, 42);
-    doc.text(formatAmount(m.lineTotal, invoice.numberFormat), colX.jumlah + colW.jumlah - 2.5, singleTextY, {
+    setFittedFontSize(doc, lineTotalText, colW.jumlah - currencyW - 5.5, 8.5, 6.4);
+    doc.text(lineTotalText, colX.jumlah + colW.jumlah - 2.2, singleTextY, {
       align: 'right',
     });
 
@@ -431,7 +498,8 @@ export async function buildProformaInvoicePdf(
     }
 
     doc.setFont('helvetica', isFinalHighlight ? 'bold' : 'normal');
-    doc.setFontSize(isFinalHighlight ? 9.2 : 8.8);
+    const summaryLabelMaxW = showWeightSummary ? colW.harga - 4 : colX.jumlah - marginX - 6;
+    setFittedFontSize(doc, label, summaryLabelMaxW, isFinalHighlight ? 9.0 : 8.6, 6.5);
     if (isDeduction) {
       doc.setTextColor(4, 120, 87);
     } else {
@@ -443,7 +511,9 @@ export async function buildProformaInvoicePdf(
     }
     doc.text(label, colX.jumlah - 2.5, textY, { align: 'right' });
 
+    const currencyText = invoice.currency || 'Rp';
     doc.setFont('helvetica', isFinalHighlight ? 'bold' : 'normal');
+    doc.setFontSize(isFinalHighlight ? 9.0 : 8.6);
     if (isDeduction) {
       doc.setTextColor(4, 120, 87);
     } else {
@@ -453,7 +523,8 @@ export async function buildProformaInvoicePdf(
         isFinalHighlight ? 42 : 139
       );
     }
-    doc.text(invoice.currency || 'Rp', colX.jumlah + 2.5, textY);
+    doc.text(currencyText, colX.jumlah + 2.2, textY);
+    const currencyW = doc.getTextWidth(currencyText);
 
     doc.setFont('helvetica', 'bold');
     if (isDeduction) {
@@ -461,7 +532,8 @@ export async function buildProformaInvoicePdf(
     } else {
       doc.setTextColor(15, 23, 42);
     }
-    doc.text(formattedAmount, colX.jumlah + colW.jumlah - 2.5, textY, {
+    setFittedFontSize(doc, formattedAmount, colW.jumlah - currencyW - 5.5, isFinalHighlight ? 9.0 : 8.6, 6.5);
+    doc.text(formattedAmount, colX.jumlah + colW.jumlah - 2.2, textY, {
       align: 'right',
     });
 
@@ -510,8 +582,10 @@ export async function buildProformaInvoicePdf(
   cursorY += 8;
 
   // 5. NOTED & PAYMENT BANK DETAILS PANEL
+  doc.setFont('helvetica', 'normal');
+  doc.setFontSize(8.5);
   const extraLines = invoice.additionalNote.trim()
-    ? doc.splitTextToSize(invoice.additionalNote.trim(), contentWidth - 10)
+    ? (doc.splitTextToSize(invoice.additionalNote.trim(), contentWidth - 10) as string[])
     : [];
   const boxH = 34 + (extraLines.length > 0 ? extraLines.length * 4.2 + 3 : 0);
 
